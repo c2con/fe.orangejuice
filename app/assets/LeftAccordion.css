@@ -1,0 +1,617 @@
+/* ===============================
+ * 공통 패널 레이아웃
+ * =============================== */
+
+.oj-widget-panel {
+    display: flex;
+    position: relative;
+    height: 100%;
+    background: #f5f5f7;
+    border-right: 1px solid #d0d0d0;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+}
+
+/* 왼쪽 세로 탭 */
+
+.oj-left-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    background: #e7eaee;
+    border-right: 1px solid #c9ccd2;
+    box-sizing: border-box;
+}
+
+.oj-left-tab-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: none;
+    padding: 0;
+    margin: 1px 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: #5f6b7a;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.oj-left-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.9);
+    color: #2f3b4c;
+}
+
+.oj-left-tab-btn.is-active {
+    background: #1976d2;
+    color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.oj-left-tab-icon {
+    width: 18px;
+    height: 18px;
+    fill: none;
+}
+
+/* 오른쪽 내용 영역 */
+
+.oj-right-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #fdfdfd;
+}
+
+/* ===============================
+ * 1) 워크스페이스 / 데이터 공통
+ * =============================== */
+
+.oj-workspace-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #ddd;
+    background: #f5f5f5;
+}
+
+/* ★ 여기 아래에 복붙 ★ */
+/* ===============================
+ * 리스트 스타일 제어 (폴더/파일)
+ * =============================== */
+
+/* 1) 루트 폴더 리스트는 bullet 제거 */
+.oj-ws-folder-list {
+    margin: 0;
+    padding-left: 0;
+}
+
+.oj-ws-folder-list > li {
+    list-style: none; /* 폴더는 bullet 제거 */
+    margin: 0;
+    padding: 0;
+}
+
+/* 2) 파일 리스트는 bullet 유지 */
+.oj-ws-file-list {
+    margin: 2px 0 2px 18px;
+    padding-left: 18px;  /* 기본 들여쓰기 */
+}
+
+/* 파일 리스트: 폴더보다 한 단계 들여쓰기 */
+.oj-ws-file-list {
+    margin: 2px 0 2px 16px;
+    padding: 0;
+}
+
+/* 파일 li: 불릿 제거 + 아이콘/텍스트 한 줄 정렬 */
+.oj-ws-file {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    margin: 0 0 2px 0;
+    padding: 0;
+}
+
+.oj-ws-toolbar-spacer {
+    flex: 1;
+}
+
+.oj-ws-btn {
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid #c0c4cc;
+    background: #ffffff;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.oj-ws-btn:hover {
+    background: #f0f3f8;
+}
+
+/* 아이콘 버튼 (Data 탭 상단) */
+
+.oj-ws-icon-btn {
+    border: 1px solid #c0c4cc;
+    background: #ffffff;
+    border-radius: 4px;
+    padding: 3px 4px;
+    margin-left: 4px;
+    cursor: pointer;
+}
+
+.oj-ws-icon-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.oj-ws-icon-btn:hover:not(:disabled) {
+    background: #f0f3f8;
+}
+
+.oj-ws-icon {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+}
+
+/* 트리 스크롤 영역 */
+
+.oj-workspace-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 4px 6px 6px;
+    outline: none;
+    background: #ffffff;
+}
+
+.oj-workspace-tree {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.oj-ws-folder {
+    margin-bottom: 4px;
+    border-radius: 4px;
+}
+
+.oj-ws-folder.selected > .oj-ws-folder-row {
+    background: #e3f2fd;
+}
+
+.oj-ws-folder-row {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
+.oj-ws-folder-row:hover {
+    background: #f0f4ff;
+}
+
+.oj-ws-folder-toggle {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    padding: 0 2px;
+    margin-right: 2px;
+    font-size: 11px;
+}
+
+.oj-ws-folder-icon {
+    margin: 0 4px 0 2px;
+}
+
+.oj-ws-folder-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.oj-ws-add-file-btn {
+    border: 1px solid #c0c4cc;
+    background: #ffffff;
+    border-radius: 4px;
+    padding: 0 4px;
+    font-size: 11px;
+    margin-left: 4px;
+    cursor: pointer;
+}
+
+.oj-ws-add-file-btn:hover {
+    background: #eef3fb;
+}
+
+.oj-ws-file-list {
+    margin: 2px 0 2px 18px;
+    padding-left: 18px;
+}
+
+.oj-ws-file {
+    display: flex;
+    align-items: center;
+    padding: 2px 4px;
+    border-radius: 4px;
+    margin-bottom: 1px;
+}
+
+.oj-ws-file.selected {
+    background: #e3f2fd;
+}
+
+.oj-ws-file:hover {
+    background: #f3f6ff;
+}
+
+.oj-ws-file-icon {
+    margin-right: 4px;
+}
+
+.oj-ws-file-name {
+    flex: 1;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.oj-ws-file-name small {
+    color: #777;
+    margin-left: 2px;
+    font-size: 11px;
+}
+
+/* 데이터 탭 비어있을 때 */
+
+.oj-data-empty {
+    margin-top: 12px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #777;
+    background: #fafafa;
+    border-radius: 4px;
+    border: 1px dashed #d0d0d0;
+}
+
+/* ===============================
+ * 컨텍스트 메뉴 & 다이얼로그
+ * =============================== */
+
+.oj-ws-context {
+    position: fixed;
+    z-index: 1000;
+    min-width: 140px;
+    background: #ffffff;
+    border: 1px solid #d0d0d0;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.14);
+    border-radius: 4px;
+    padding: 4px 0;
+}
+
+.oj-ws-context-item {
+    width: 100%;
+    padding: 4px 10px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.oj-ws-context-item:hover {
+    background: #e9f1ff;
+}
+
+.oj-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+}
+
+.oj-dialog {
+    background: #ffffff;
+    border-radius: 6px;
+    padding: 10px 12px;
+    width: 260px;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+}
+
+.oj-dialog-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.oj-dialog-body {
+    margin-bottom: 8px;
+}
+
+.oj-dialog-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid #c0c4cc;
+}
+
+.oj-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.oj-dialog-btn {
+    border-radius: 4px;
+    border: 1px solid #c0c4cc;
+    background: #ffffff;
+    padding: 3px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.oj-dialog-btn.primary {
+    background: #1976d2;
+    border-color: #1976d2;
+    color: #ffffff;
+}
+
+.oj-dialog-btn.danger {
+    background: #e53935;
+    border-color: #e53935;
+    color: #ffffff;
+}
+
+.oj-dialog-btn:hover:not(.danger):not(.primary) {
+    background: #f0f3f8;
+}
+
+/* 숨겨진 파일 입력 */
+
+.oj-hidden-file {
+    display: none;
+}
+
+/* ===============================
+ * 2) 위젯 탭 (오렌지3 스타일)
+ * =============================== */
+
+/* 상단 Filter */
+
+.oj-filter-row {
+    padding: 6px 8px 4px;
+    border-bottom: 1px solid #ddd;
+    background: #f4f4f5;
+}
+
+.oj-filter-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 3px 6px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid #c0c4cc;
+}
+
+/* 아코디언 영역 */
+
+.oj-accordion-scroll {
+    flex: 1;
+    overflow: auto;
+    background: #fdfdfd;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
+.oj-accordion-section {
+    margin-bottom: 6px;
+}
+
+/* 카테고리 헤더 */
+
+.oj-acc-header {
+    width: 100%;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px 4px 0 0;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: #ffffff;
+    text-align: left;
+    box-sizing: border-box;
+}
+
+/* 카테고리별 색 (오렌지3 느낌) */
+
+/* Data – 밝은 오렌지 */
+.oj-acc-header.cat-data {
+    background: linear-gradient(90deg, #f6b05c, #f7941d);
+}
+.oj-acc-header.is-open.cat-data {
+    background: linear-gradient(90deg, #f39c45, #f57c00);
+}
+
+/* Transform – 한 톤 더 진한 오렌지 */
+.oj-acc-header.cat-transform {
+    background: linear-gradient(90deg, #f4a552, #f17c11);
+}
+.oj-acc-header.is-open.cat-transform {
+    background: linear-gradient(90deg, #f09332, #e96a02);
+}
+
+/* Visualize – 연핑크 */
+.oj-acc-header.cat-visualize {
+    background: linear-gradient(90deg, #f9b4d4, #f284c1);
+}
+.oj-acc-header.is-open.cat-visualize {
+    background: linear-gradient(90deg, #f69cc6, #ec6ab0);
+}
+
+/* Model – 보라빛 핑크 */
+.oj-acc-header.cat-model {
+    background: linear-gradient(90deg, #f4b6e0, #e46bb5);
+}
+.oj-acc-header.is-open.cat-model {
+    background: linear-gradient(90deg, #f48fb1, #d81b60);
+}
+
+/* Evaluate – 민트/티얼 */
+.oj-acc-header.cat-evaluate {
+    background: linear-gradient(90deg, #c2e7eb, #8acfd6);
+}
+.oj-acc-header.is-open.cat-evaluate {
+    background: linear-gradient(90deg, #a7dbe1, #74c1c9);
+}
+
+/* Unsupervised – 연보라 */
+.oj-acc-header.cat-unsupervised {
+    background: linear-gradient(90deg, #d7c9f5, #b29ae7);
+}
+.oj-acc-header.is-open.cat-unsupervised {
+    background: linear-gradient(90deg, #cbbcf0, #9d85dd);
+}
+
+.oj-acc-cat-icon-wrap {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.oj-acc-cat-icon {
+    width: 14px;
+    height: 14px;
+}
+
+.oj-acc-label {
+    flex: 1;
+    font-weight: 600;
+}
+
+.oj-acc-chevron {
+    margin-left: 4px;
+}
+
+/* 아코디언 바디 */
+
+.oj-acc-body {
+    border-radius: 0 0 4px 4px;
+    border: 1px solid #e0e0e0;
+    border-top: none;
+    background: #ffffff;
+    padding: 6px 6px 8px;
+}
+
+/* 위젯 타일 그리드 */
+
+.oj-widgets-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.oj-widget-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 90px;
+    max-width: 140px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    border: 1px solid #d7d7d7;
+    background: #ffffff;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.oj-widget-tile:hover {
+    background: #f7f9ff;
+    border-color: #b0c4ff;
+}
+
+.oj-widget-tile.selected {
+    border-color: #1976d2;
+    box-shadow: 0 0 0 1px #1976d2;
+}
+
+/* 위젯 아이콘 (점선 사각형 느낌) */
+
+.oj-widget-icon-wrap {
+    margin-bottom: 3px;
+}
+
+.oj-widget-icon,
+.oj-widget-icon-placeholder {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.oj-widget-icon-placeholder {
+    border: 1px dashed #b0b0b0;
+    background: #fafafa;
+}
+
+/* 레이블 */
+
+.oj-widget-label {
+    font-size: 12px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+/* 오른쪽 하단 설명 패널 */
+
+.oj-desc-panel {
+    border-top: 1px solid #dedede;
+    padding: 6px 8px 8px;
+    background: #fafafa;
+    min-height: 48px;
+    box-sizing: border-box;
+}
+
+.oj-desc-title {
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.oj-desc-text {
+    font-size: 11px;
+    color: #555;
+}
+
+/* ===============================
+ * 리사이저 바
+ * =============================== */
+
+.oj-resizer {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+}
+
+.oj-resizer:hover {
+    background: rgba(0, 0, 0, 0.06);
+}
