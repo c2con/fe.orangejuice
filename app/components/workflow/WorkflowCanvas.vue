@@ -1,13 +1,15 @@
 <template>
   <div class="oj-workflow-wrapper">
-    <VueFlow
-        class="oj-workflow-canvas"
-        :nodes="flowNodes"
-        :edges="flowEdges"
-        :node-types="nodeTypes"
-        fit-view
-        @node-drag="handleNodeDrag"
-    />
+    <ClientOnly>
+      <VueFlow
+          class="oj-workflow-canvas"
+          :nodes="flowNodes"
+          :edges="flowEdges"
+          :node-types="nodeTypes"
+          fit-view
+          @node-drag="handleNodeDrag"
+      />
+    </ClientOnly>
   </div>
 </template>
 

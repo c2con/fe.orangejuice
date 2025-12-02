@@ -197,31 +197,154 @@ function getArcGeometry(isOutput: boolean, count: number) {
   return { pathD, points }
 }
 
+const getNodeLabel = (id: string) => {
+  const n = findNode(id)
+  if (!n) return `ID:${id}`
+  return n.data?.label ?? n.label ?? `ID:${id}`
+}
+
+const getNodeCenter = (n: any) => {
+  if (!n) return { x: 0, y: 0 }
+  const x = n.computedPosition?.x ?? n.position?.x ?? 0
+  const y = n.computedPosition?.y ?? n.position?.y ?? 0
+  const w = n.dimensions?.width ?? NODE_DIAMETER
+  const h = n.dimensions?.height ?? NODE_DIAMETER
+  return { x: x + w / 2, y: y + h / 2 }
+}
+
+// [핵심 로직] 12시(Up) 기준 각도 점수 계산
+const getAngleScore = (myCenter: {x:number, y:number}, otherCenter: {x:number, y:number}, isInput: boolean) => {
+  const dx = otherCenter.x - myCenter.x
+  const dy = otherCenter.y - myCenter.y
+
+  // 1. 기본 각도 (3시=0, 시계방향)
+  const rad = Math.atan2(dy, dx)
+  const deg = rad * (180 / Math.PI)
+
+  if (isInput) {
+    // === [입력] 반시계(CCW) 측정 ===
+    // 12시(0) -> 9시(90) -> 6시(180) -> 3시(270)
+    // 변환공식: (270 - deg) 정규화
+    return (270 - deg + 360) % 360
+  } else {
+    // === [출력] 시계(CW) 측정 ===
+    // 12시(0) -> 3시(90) -> 6시(180) -> 9시(270)
+    // 변환공식: (deg + 90) 정규화
+    return (deg + 90 + 360) % 360
+  }
+}
+
+function getSortedEdges(isInput: boolean) {
+  if (!edges.value) return []
+
+  const myEdges = edges.value.filter(e =>
+      isInput ? e.target === props.id : e.source === props.id
+  )
+
+  if (myEdges.length === 0) return []
+
+  const myNode = findNode(props.id)
+  const myCenter = getNodeCenter(myNode)
+  const myLabel = getNodeLabel(props.id)
+
+  const edgesWithScore = myEdges.map((e, idx) => {
+    const otherNodeId = isInput ? e.source : e.target
+    const otherNode = findNode(otherNodeId)
+    const otherCenter = getNodeCenter(otherNode)
+
+    const score = getAngleScore(myCenter, otherCenter, isInput)
+
+    return {
+      edge: e,
+      originalIdx: idx,
+      score: score,
+      otherLabel: getNodeLabel(otherNodeId)
+    }
+  })
+
+  // [최종 정렬 방향]
+  // Input/Output 모두 핸들이 [Top -> Bottom] 순서로 생성됨 (Index 0 = Top)
+  // 각도 점수는 12시(Top)에서 멀어질수록 커짐 (Top=Small, Bottom=Large)
+  // 따라서 Small -> Index 0 매칭을 위해 '오름차순' 사용
+  edgesWithScore.sort((a, b) => a.score - b.score)
+
+  // 디버깅 로그
+  if (isInput) {
+    console.groupCollapsed(`%c🟢 INPUT (CCW): ${myLabel}`, 'color:green')
+  } else {
+    console.groupCollapsed(`%c🔵 OUTPUT (CW): ${myLabel}`, 'color:blue')
+  }
+  console.log("Rule: 오름차순 (Top[Low Score] -> Bottom[High Score])")
+
+  console.table(edgesWithScore.map((item, i) => ({
+    "Order": i,
+    "Target": item.otherLabel,
+    "Score": Math.round(item.score),
+    "Pos": i === 0 ? "Top (Start)" : "Bottom (End)"
+  })))
+  console.groupEnd()
+
+  return edgesWithScore
+}
+
+// === [Input 데이터] ===
 const inputData = computed(() => {
-  const count = inputPorts.value.length
+  // 1. 고정 포트 처리
+  if (inputPorts.value.length > 0) {
+    const count = inputPorts.value.length
+    // points 순서: [Index 0 = Top] ... [Index N = Bottom]
+    const { points, pathD } = getArcGeometry(false, count)
+
+    const myNode = findNode(props.id)
+    const myCenter = getNodeCenter(myNode)
+
+    const portsWithScore = inputPorts.value.map((name, i) => {
+      const portId = `in-${i}`
+      const connectedEdges = edges.value.filter(e => e.target === props.id && e.targetHandle === portId)
+
+      let avgScore = 999 // 연결 없으면 뒤(Bottom)로 보냄
+      let connectedInfo = "None"
+
+      if (connectedEdges.length > 0) {
+        let sumScore = 0
+        connectedEdges.forEach(e => {
+          const srcNode = findNode(e.source)
+          const srcCenter = getNodeCenter(srcNode)
+          // Input=true (CCW)
+          sumScore += getAngleScore(myCenter, srcCenter, true)
+        })
+        avgScore = sumScore / connectedEdges.length
+        connectedInfo = connectedEdges.map(e => getNodeLabel(e.source)).join(", ")
+      }
+
+      return { name, id: portId, score: avgScore, originalIndex: i, connectedInfo }
+    })
+
+    // 고정 포트 정렬: 오름차순
+    portsWithScore.sort((a, b) => {
+      if (a.score === 999 && b.score === 999) return a.originalIndex - b.originalIndex
+      return a.score - b.score
+    })
+
+    const mappedPoints = points.map((p, i) => {
+      const portInfo = portsWithScore[i]
+      const safeId = portInfo?.id ?? `in-${i}`
+      const safeName = portInfo?.name ?? ''
+      return { id: safeId, x: p.x, y: p.y, name: safeName }
+    })
+    return { pathD, points: mappedPoints }
+  }
+
+  // 2. 동적 포트 처리
+  const sortedEdges = getSortedEdges(true) // 오름차순
+  const count = Math.max(sortedEdges.length, 1)
   const { points, pathD } = getArcGeometry(false, count)
 
-  const mappedPoints =
-      count > 0
-          ? inputPorts.value.map((name, i) => {
-            const p = points[i] ?? points[0] ?? { x: '0', y: '0' }
-            return {
-              id: `in-${i}`,
-              x: p.x,
-              y: p.y,
-              name
-            }
-          })
-          : []
-
-  // count === 0 일 때도 points[0] 가 있다는 보장을 위해 length 체크
-  if (mappedPoints.length === 0 && count === 0 && hasInput.value && points.length > 0) {
-    const p0 = points[0] ?? { x: '0', y: '0' }
-    return {
-      pathD,
-      points: [{ id: 'in-0', x: p0.x, y: p0.y, name: 'Data' }]
-    }
-  }
+  const mappedPoints = points.map((p, i) => {
+    const info = sortedEdges[i]
+    const handleId = info?.edge.targetHandle ?? `in-${info?.originalIdx ?? i}`
+    return { id: handleId, x: p.x, y: p.y, name: '' }
+  })
 
   return { pathD, points: mappedPoints }
 })
@@ -229,59 +352,17 @@ const inputData = computed(() => {
 const inputArcPath = computed(() => inputData.value.pathD)
 const inputHandles = computed(() => inputData.value.points)
 
-// === [핵심 로직] 좌표 방어 로직이 포함된 각도 정렬 ===
+// === [Output 데이터] ===
 const outputData = computed(() => {
-  if (!edges.value) return { pathD: '', points: [] as { id: string; x: string; y: string }[] }
-
-  const myEdges = edges.value.filter(e => e.source === props.id)
-  const count = myEdges.length
-
-  const sourceNode = findNode(props.id)
-  const sX = sourceNode?.computedPosition?.x ?? sourceNode?.position?.x ?? 0
-  const sY = sourceNode?.computedPosition?.y ?? sourceNode?.position?.y ?? 0
-
-  const srcCenterX = sX + NODE_DIAMETER / 2
-  const srcCenterY = sY + NODE_DIAMETER / 2
-
-  const edgesWithAngle = myEdges.map((e, idx) => {
-    const targetNode = findNode(e.target)
-
-    const tX = targetNode?.computedPosition?.x ?? targetNode?.position?.x ?? 0
-    const tY = targetNode?.computedPosition?.y ?? targetNode?.position?.y ?? 0
-    const tW = targetNode?.dimensions?.width ?? NODE_DIAMETER
-    const tH = targetNode?.dimensions?.height ?? NODE_DIAMETER
-
-    const targetCenterX = tX + tW / 2
-    const targetCenterY = tY + tH / 2
-
-    const dx = targetCenterX - srcCenterX
-    const dy = targetCenterY - srcCenterY
-
-    const angle = (Math.atan2(dy, dx) * 180) / Math.PI
-
-    return { edge: e, angle, originalIdx: idx }
-  })
-
-  edgesWithAngle.sort((a, b) => a.angle - b.angle)
-
-  const { points, pathD } = getArcGeometry(true, count)
-
-  if (count === 0 && points.length > 0) {
-    const p0 = points[0] ?? { x: '0', y: '0' }
-    return { pathD, points: [{ id: 'out-def', x: p0.x, y: p0.y }] }
-  }
+  const sortedEdges = getSortedEdges(false) // 오름차순
+  const count = sortedEdges.length
+  const effectiveCount = count === 0 ? 1 : count
+  const { points, pathD } = getArcGeometry(true, effectiveCount)
 
   const mappedPoints = points.map((p, i) => {
-    const info = edgesWithAngle[i]
-    if (!info) {
-      return { id: `out-${i}`, x: p.x, y: p.y }
-    }
-    const handleId = (info.edge.sourceHandle as string | undefined) ?? `out-${info.originalIdx}`
-    return {
-      id: handleId,
-      x: p.x,
-      y: p.y
-    }
+    const info = sortedEdges[i]
+    const handleId = info?.edge.sourceHandle ?? `out-${info?.originalIdx ?? i}`
+    return { id: handleId, x: p.x, y: p.y }
   })
 
   return { pathD, points: mappedPoints }
