@@ -54,7 +54,7 @@
 
       <div class="oj-node-main" :style="circleStyle">
         <div class="oj-node-inner">
-          <img v-if="iconSrc" :src="iconSrc" alt="" class="oj-node-icon" />
+          <img v-if="iconSrc" :src="iconSrc" alt="" class="oj-node-icon" @error="handleImgError"/>
         </div>
       </div>
 
@@ -131,6 +131,22 @@ const circleStyle = computed<CSSProperties>(() => ({
   height: '100%',
   boxSizing: 'border-box'
 }))
+
+// [추가] 기본 아이콘 경로 상수
+const DEFAULT_ICON_PATH = "/icons/widgets/default.svg"
+// [추가] 이미지 로딩 에러 핸들러
+const handleImgError = (e: Event) => {
+  const target = e.target as HTMLImageElement;
+
+  // 이미 default.svg로 교체된 상태라면 무한루프 방지를 위해 종료
+  if (target.src.includes('default.svg')) return;
+
+  // 1. 에러 로그 출력 (개발 확인용)
+  console.warn(`[OjNode] 아이콘 로딩 실패: ${target.src} -> default.svg로 대체함`);
+
+  // 2. 이미지를 기본 아이콘으로 교체
+  target.src = DEFAULT_ICON_PATH;
+}
 
 // === [기하학 로직] 아치 형태 ===
 function getArcGeometry(isOutput: boolean, count: number) {

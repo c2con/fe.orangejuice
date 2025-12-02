@@ -70,8 +70,8 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Colors.svg"
     },
-    "Save": {
-        id: "Save", label: "Save Data", categoryId: "data",
+    "SaveData": {
+        id: "SaveData", label: "Save Data", categoryId: "data",
         inputs: ["Data"], outputs: [], hasInput: true, hasOutput: false,
         icon: "/icons/widgets/data/Save.svg"
     },
@@ -145,7 +145,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/AggregateColumns.svg"
     },
-    "GroupBy": {
+    "Groupby": {
         id: "GroupBy", label: "Group By", categoryId: "data",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/GroupBy.svg"
@@ -254,8 +254,8 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: ["Data"], outputs: ["Selected Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/visualize/BarPlot.svg"
     },
-    "Distribution": {
-        id: "Distribution", label: "Distributions", categoryId: "visualize",
+    "Distributions": {
+        id: "Distributions", label: "Distributions", categoryId: "visualize",
         inputs: ["Data"], outputs: ["Selected Data", "Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/visualize/Distribution.svg"
     },
@@ -358,8 +358,8 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
     // =================================================================
     // 🧠 MODEL (모델링)
     // =================================================================
-    "KNN": {
-        id: "KNN", label: "kNN", categoryId: "model",
+    "kNN": {
+        id: "kNN", label: "kNN", categoryId: "model",
         inputs: ["Data", "Preprocessor"], outputs: ["Learner", "Model"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/model/KNN.svg"
     },
@@ -655,6 +655,19 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         hasInput: true, hasOutput: true,
         icon: "/icons/widgets/unsupervised/Category-Unsupervised.svg"
     },
+    // =================================================================
+    // 🔗 ASSOCIATE (연관 분석 - 누락된 부분 추가)
+    // =================================================================
+    "FrequentItemsets": {
+        id: "FrequentItemsets", label: "Frequent Itemsets", categoryId: "associate",
+        inputs: ["Data"], outputs: ["Frequent Itemsets"], hasInput: true, hasOutput: true,
+        icon: "/icons/widgets/associate/FrequentItemsets.svg" // 아이콘 경로 확인 필요
+    },
+    "AssociationRules": {
+        id: "AssociationRules", label: "Association Rules", categoryId: "associate",
+        inputs: ["Data", "Frequent Itemsets"], outputs: ["Association Rules"], hasInput: true, hasOutput: true,
+        icon: "/icons/widgets/associate/AssociationRules.svg" // 아이콘 경로 확인 필요
+    },
 
     // =================================================================
     // 🔗 ALIAS (OWS 파일 내 클래스 이름 매핑)
@@ -677,10 +690,19 @@ export function getWidgetDef(widgetName: string): WidgetDefinition {
     if (WIDGET_DEFINITIONS[widgetName]) return WIDGET_DEFINITIONS[widgetName];
 
     const safeName = widgetName || "";
+    // 공백 제거
     const normalized = safeName.replace(/\s+/g, '');
     if (WIDGET_DEFINITIONS[normalized]) return WIDGET_DEFINITIONS[normalized];
 
-    console.warn(`[getWidgetDef] 매칭 실패! 요청: "${widgetName}"`);
+    // [추가] 대소문자 무시하고 검색 (Case-insensitive search)
+    // 키(Key)들을 순회하며 대소문자 구분 없이 비교
+    const lowerNormalized = normalized.toLowerCase();
+    const foundKey = Object.keys(WIDGET_DEFINITIONS).find(key =>
+        key.toLowerCase() === lowerNormalized
+    );
+    if (foundKey) return WIDGET_DEFINITIONS[foundKey]!;
+
+    console.warn(`[getWidgetDef] 매칭 실패! 요청: "${widgetName}, ${normalized}"`);
     return {
         id: safeName,
         label: safeName,
