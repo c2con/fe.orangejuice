@@ -72,13 +72,16 @@ import { getWidgetColors } from '@/utils/widgetStyle'
 import { getWidgetDef } from '@/utils/widgetDefinitions'
 
 // === [디자인 설정값] ===
-const NODE_R = 23
-const NODE_DIAMETER = 46
-const ARC_GAP = 5
-const ARC_R = NODE_R + ARC_GAP
-const ARC_ANGLE = 85
-const ARC_Y_OFFSET = 0
-const CENTER = 100
+// 공통 상수 (없으면 직접 정의해서 사용해도 됨)
+import {
+  NODE_DIAMETER,
+  ARC_R,
+  ARC_ANGLE,
+  ARC_Y_OFFSET,
+  CENTER,
+  getAngleScore,
+  getNodeCenter
+} from '@/utils/workflowGeometry'
 
 interface NodeData {
   widgetId: string
@@ -200,38 +203,7 @@ function getArcGeometry(isOutput: boolean, count: number) {
 const getNodeLabel = (id: string) => {
   const n = findNode(id)
   if (!n) return `ID:${id}`
-  return n.data?.label ?? n.label ?? `ID:${id}`
-}
-
-const getNodeCenter = (n: any) => {
-  if (!n) return { x: 0, y: 0 }
-  const x = n.computedPosition?.x ?? n.position?.x ?? 0
-  const y = n.computedPosition?.y ?? n.position?.y ?? 0
-  const w = n.dimensions?.width ?? NODE_DIAMETER
-  const h = n.dimensions?.height ?? NODE_DIAMETER
-  return { x: x + w / 2, y: y + h / 2 }
-}
-
-// [핵심 로직] 12시(Up) 기준 각도 점수 계산
-const getAngleScore = (myCenter: {x:number, y:number}, otherCenter: {x:number, y:number}, isInput: boolean) => {
-  const dx = otherCenter.x - myCenter.x
-  const dy = otherCenter.y - myCenter.y
-
-  // 1. 기본 각도 (3시=0, 시계방향)
-  const rad = Math.atan2(dy, dx)
-  const deg = rad * (180 / Math.PI)
-
-  if (isInput) {
-    // === [입력] 반시계(CCW) 측정 ===
-    // 12시(0) -> 9시(90) -> 6시(180) -> 3시(270)
-    // 변환공식: (270 - deg) 정규화
-    return (270 - deg + 360) % 360
-  } else {
-    // === [출력] 시계(CW) 측정 ===
-    // 12시(0) -> 3시(90) -> 6시(180) -> 9시(270)
-    // 변환공식: (deg + 90) 정규화
-    return (deg + 90 + 360) % 360
-  }
+  return n.data?.label ?? `ID:${id}`
 }
 
 function getSortedEdges(isInput: boolean) {
