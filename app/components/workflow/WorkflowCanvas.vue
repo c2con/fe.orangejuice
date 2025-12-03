@@ -8,6 +8,7 @@
           :node-types="nodeTypes"
           fit-view
           @node-drag="handleNodeDrag"
+          @pane-ready="handlePaneReady"
       />
     </ClientOnly>
   </div>
@@ -15,8 +16,8 @@
 
 <script lang="ts">
 import { defineNuxtComponent } from '#app'
-import { computed, markRaw } from 'vue'
-import { VueFlow } from '@vue-flow/core'
+import { computed, markRaw, watch, nextTick } from 'vue'
+import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { NodeDragEvent, NodeTypesObject, Edge } from '@vue-flow/core'
 
 import '@vue-flow/core/dist/style.css'
@@ -26,6 +27,7 @@ import { useWorkflowStore } from '@/stores/workflow'
 import type { WorkflowEdge } from '@/stores/workflow'
 import OjNode from '@/components/workflow/OjNode.vue'
 import { getWidgetDef } from '@/utils/widgetDefinitions'
+import { NODE_DIAMETER } from '@/utils/workflowGeometry'
 
 export default defineNuxtComponent({
   ssr: false,
@@ -35,16 +37,22 @@ export default defineNuxtComponent({
   setup() {
     const workflowStore = useWorkflowStore()
 
-    // VueFlow 커스텀 노드 타입
+    // VueFlow API (뷰포트 제어용)
+    const { setViewport, dimensions } = useVueFlow()
+
+    // -----------------------------
+    // 1) 커스텀 노드 타입
+    // -----------------------------
     const nodeTypes: NodeTypesObject = {
       'oj-node': markRaw(OjNode) as any,
     }
 
-    // 1) 노드별 "실제 입력 포트 이름" 목록 계산
+    // -----------------------------
+    // 2) 노드별 실제 입력 포트 이름 계산
+    // -----------------------------
     const nodeRealInputs = computed<Record<string, string[]>>(() => {
       const inputsMap: Record<string, string[]> = {}
       const edgesByTarget: Record<string, WorkflowEdge[]> = {}
-
       const storeEdges = workflowStore.edges as WorkflowEdge[]
 
       // 타겟 노드 기준으로 그룹핑
@@ -66,7 +74,6 @@ export default defineNuxtComponent({
         const sortedInputs: string[] = []
 
         sortedEdges.forEach(({ edge }) => {
-          // 입력 포트 이름: targetChannel 우선, 없으면 label, 마지막으로 'Data'
           const portName = edge.targetChannel ?? edge.label ?? 'Data'
           if (!sortedInputs.includes(portName)) {
             sortedInputs.push(portName)
@@ -74,7 +81,6 @@ export default defineNuxtComponent({
         })
 
         const def = getWidgetDef(node.widgetType)
-        // 연결된 에지가 없지만 위젯이 입력을 가진다면 기본 'Data' 추가
         if (sortedInputs.length === 0 && def.hasInput) {
           sortedInputs.push('Data')
         }
@@ -85,12 +91,13 @@ export default defineNuxtComponent({
       return inputsMap
     })
 
-    // 2) VueFlow 노드 생성
+    // -----------------------------
+    // 3) VueFlow 노드 생성
+    // -----------------------------
     const flowNodes = computed(() =>
         workflowStore.nodes.map((n) => {
           const def = getWidgetDef(n.widgetType)
 
-          // 위젯 정의 기반 출력 포트 목록
           const defOutputs =
               def.outputs && def.outputs.length > 0
                   ? def.outputs
@@ -106,28 +113,24 @@ export default defineNuxtComponent({
               label: n.title || n.name,
               widgetId: n.widgetType,
               icon: def.icon,
-
-              // [입력] – edge 기반으로 계산된 실제 포트 이름
               inputs: nodeRealInputs.value[n.id] || [],
-
-              // [출력] – 위젯 정의 기반 고정 목록
               outputs: defOutputs,
             },
           }
         }),
     )
 
-    // 3) VueFlow 엣지 생성 (입력/출력 핸들을 각도 기반으로 매핑)
+    // -----------------------------
+    // 4) VueFlow 엣지 생성 (각도 기반 핸들 매핑)
+    // -----------------------------
     const flowEdges = computed<Edge[]>(() => {
       const nodeIds = new Set(flowNodes.value.map((n) => n.id))
       const storeEdges = workflowStore.edges as WorkflowEdge[]
 
-      // 1) 실제 캔버스에 존재하는 노드 사이의 엣지만 사용
       const validEdges: WorkflowEdge[] = storeEdges.filter(
           (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
       )
 
-      // Edge 객체를 한 번만 만들어두고 id로 접근
       const edgeMap: Record<string, Edge> = {}
       const baseEdges: Edge[] = validEdges.map((e) => {
         const edge: Edge = {
@@ -143,9 +146,7 @@ export default defineNuxtComponent({
       const findNodeById = (id: string) =>
           workflowStore.nodes.find((n) => n.id === id)
 
-      // ------------------------------------------------------------------
-      // 2) [출력] 소스 기준 각도 정렬 → sourceHandle = out-0, out-1, ...
-      // ------------------------------------------------------------------
+      // --- source 기준 정렬 → out-0, out-1, ...
       const edgesBySource: Record<string, WorkflowEdge[]> = {}
       validEdges.forEach((e) => {
         ;(edgesBySource[e.source] ??= []).push(e)
@@ -175,9 +176,7 @@ export default defineNuxtComponent({
         })
       }
 
-      // ------------------------------------------------------------------
-      // 3) [입력] 타겟 기준 각도 정렬 → targetHandle = in-0, in-1, ...
-      // ------------------------------------------------------------------
+      // --- target 기준 정렬 → in-0, in-1, ...
       const edgesByTarget: Record<string, WorkflowEdge[]> = {}
       validEdges.forEach((e) => {
         ;(edgesByTarget[e.target] ??= []).push(e)
@@ -207,9 +206,6 @@ export default defineNuxtComponent({
         })
       }
 
-      // ------------------------------------------------------------------
-      // 4) 스타일 공통 적용 후 반환
-      // ------------------------------------------------------------------
       baseEdges.forEach((e) => {
         e.style = { stroke: '#bdc3c7', strokeWidth: 2 }
       })
@@ -217,8 +213,9 @@ export default defineNuxtComponent({
       return baseEdges
     })
 
-
-    // 4) 노드 드래그 시 위치를 스토어에 반영
+    // -----------------------------
+    // 5) 노드 드래그 시 위치를 스토어에 반영
+    // -----------------------------
     function handleNodeDrag(event: NodeDragEvent) {
       const targetNode = workflowStore.nodes.find((n) => n.id === event.node.id)
       if (targetNode) {
@@ -227,16 +224,98 @@ export default defineNuxtComponent({
       }
     }
 
+    // -----------------------------
+    // 6) 뷰포트 계산 (노드 bounding box 기준)
+    // -----------------------------
+    const VIEWPORT_PADDING_X = 0.15
+    const VIEWPORT_PADDING_Y = 0.15
+    const MIN_ZOOM = 0.05
+    const MAX_ZOOM = 1.5
+
+
+    const fitAllNodesWithViewport = async () => {
+      const nodes = flowNodes.value
+      if (!nodes.length) return
+
+      await nextTick()
+
+      const dim = dimensions.value
+      const viewW = dim?.width ?? 0
+      const viewH = dim?.height ?? 0
+      if (viewW <= 0 || viewH <= 0) return
+
+      // 1) 노드 bounding box (원래 그래프 크기)
+      let minX = Infinity
+      let maxX = -Infinity
+      let minY = Infinity
+      let maxY = -Infinity
+
+      nodes.forEach((n) => {
+        const x = n.position.x
+        const y = n.position.y
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      })
+
+      // 노드 하나도 없으면 종료
+      if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return
+
+      // 노드 크기까지 포함한 "원래" 폭/높이
+      const rawWidth = (maxX - minX) + NODE_DIAMETER
+      const rawHeight = (maxY - minY) + NODE_DIAMETER
+
+      // 2) padding 비율만큼 bbox 를 확장 (유격)
+      const marginX = rawWidth * VIEWPORT_PADDING_X
+      const marginY = rawHeight * VIEWPORT_PADDING_Y
+
+      const graphWidth = rawWidth + marginX * 2
+      const graphHeight = rawHeight + marginY * 2
+
+      // 3) 줌 배율 계산 (확장된 graphWidth/Height 기준)
+      const zoomX = viewW / graphWidth
+      const zoomY = viewH / graphHeight
+      let zoom = Math.min(zoomX, zoomY)
+      zoom = Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM)
+
+      // 4) 그래프 중심 ↔ 화면 중심 정렬
+      const graphCenterX = minX + rawWidth / 2
+      const graphCenterY = minY + rawHeight / 2
+
+      const screenCenterX = viewW / 2
+      const screenCenterY = viewH / 2
+
+      const x = screenCenterX - graphCenterX * zoom
+      const y = screenCenterY - graphCenterY * zoom
+
+      await setViewport({ x, y, zoom })
+    }
+
+    // pane 준비 시
+    const handlePaneReady = async () => {
+      await fitAllNodesWithViewport()
+    }
+
+    watch(
+        () => flowNodes.value.length,
+        async (newLen, oldLen) => {
+          if (oldLen === 0 && newLen > 0) {
+            await fitAllNodesWithViewport()
+          }
+        },
+    )
+
     return {
       flowNodes,
       flowEdges,
       nodeTypes,
       handleNodeDrag,
+      handlePaneReady,
     }
   },
 })
 </script>
-
 
 <style scoped>
 .oj-workflow-wrapper {
@@ -245,6 +324,7 @@ export default defineNuxtComponent({
   height: 100%;
   display: flex;
 }
+
 .oj-workflow-canvas {
   width: 100%;
   height: 100%;
