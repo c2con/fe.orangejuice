@@ -230,7 +230,7 @@ export default defineNuxtComponent({
     // 6) 뷰포트 계산 (노드 bounding box 기준)
     // -----------------------------
     const VIEWPORT_PADDING_X = 0.15
-    const VIEWPORT_PADDING_Y = 0.15
+    const VIEWPORT_PADDING_Y = 0.10
     const MIN_ZOOM = 0.05
     const MAX_ZOOM = 1.5
 
