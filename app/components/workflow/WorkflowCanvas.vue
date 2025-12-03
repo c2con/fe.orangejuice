@@ -16,7 +16,7 @@
 
 <script lang="ts">
 import { defineNuxtComponent } from '#app'
-import { computed, markRaw, watch, nextTick } from 'vue'
+import { computed, markRaw, watch, nextTick, ref } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { NodeDragEvent, NodeTypesObject, Edge } from '@vue-flow/core'
 
@@ -35,6 +35,8 @@ export default defineNuxtComponent({
     VueFlow,
   },
   setup() {
+    const hasViewportFitted = ref(false)  // 최초 1회만 fit 하도록 플래그
+
     const workflowStore = useWorkflowStore()
 
     // VueFlow API (뷰포트 제어용)
@@ -232,8 +234,10 @@ export default defineNuxtComponent({
     const MIN_ZOOM = 0.05
     const MAX_ZOOM = 1.5
 
-
     const fitAllNodesWithViewport = async () => {
+      // 이미 한 번 맞췄으면 다시는 안 함
+      if (hasViewportFitted.value) return
+
       const nodes = flowNodes.value
       if (!nodes.length) return
 
@@ -290,6 +294,9 @@ export default defineNuxtComponent({
       const y = screenCenterY - graphCenterY * zoom
 
       await setViewport({ x, y, zoom })
+
+      // ✅ 여기서 플래그 ON → 이후로는 더 이상 viewport 자동 조정 안 함
+      hasViewportFitted.value = true
     }
 
     // pane 준비 시
