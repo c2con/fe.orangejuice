@@ -25,7 +25,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: [], outputs: ["Data"], hasInput: false, hasOutput: true,
         icon: "/icons/widgets/data/File.svg"
     },
-    "CSVFile": {
+    "CSVFileImport": {
         id: "CSVFile", label: "CSV File Import", categoryId: "data",
         inputs: [], outputs: ["Data"], hasInput: false, hasOutput: true,
         icon: "/icons/widgets/data/CSVFile.svg"
@@ -405,7 +405,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: ["Data", "Preprocessor", "Learner"], outputs: ["Learner", "Model"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/model/AdaBoost.svg"
     },
-    "NN": {
+    "NeuralNetwork": {
         id: "NN", label: "Neural Network", categoryId: "model",
         inputs: ["Data", "Preprocessor"], outputs: ["Learner", "Model"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/model/NN.svg"
@@ -570,7 +570,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         hasInput: true, hasOutput: true,
         icon: "/icons/widgets/unsupervised/DistanceMap.svg"
     },
-    "KMeans": {
+    "K-Means": {
         id: "KMeans", label: "k-Means", categoryId: "unsupervised",
         inputs: ["Data"], outputs: ["Data", "Centroids"],
         hasInput: true, hasOutput: true,
