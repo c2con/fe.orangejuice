@@ -7,6 +7,10 @@
       <button type="button" class="oj-ws-btn" @click="addFolder">
         폴더 추가
       </button>
+      <!-- OWS 파일 추가 버튼 (여기에 추가하면 됨) -->
+      <button type="button" class="oj-ws-btn" @click="onImportOwsClick">
+        OWS 파일 추가
+      </button>
     </div>
 
     <!-- 트리 + 키 입력 포커스 영역 -->
@@ -177,46 +181,40 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { ref, toRef } from "vue"
 import { useWorkflowStore } from "~/stores/workflow"
+import type { WorkspaceFolder, WorkspaceFile } from "~/stores/workflow"
 
 const workflowStore = useWorkflowStore()
 
-interface WorkspaceFile {
-  id: string
-  name: string
-}
-
-interface WorkspaceFolder {
-  id: string
-  name: string
-  isOpen: boolean
-  files: WorkspaceFile[]
-}
-
 type ContextType = "folder" | "file" | null
 
-/* 기본 폴더/파일 상태 */
-const workspaceFolders = ref<WorkspaceFolder[]>([
-  {
-    id: "folder-1",
+// 숨겨진 <input type="file" /> 에 붙일 ref (템플릿에서 ref="owsFileInput" 이어야 함)
+const owsFileInput = ref<HTMLInputElement | null>(null)
+
+// Pinia 상태와 연결된 워크스페이스 트리/선택 상태
+const workspaceFolders = toRef(workflowStore, "workspaceFolders")
+const selectedFolderId = toRef(workflowStore, "selectedWorkspaceFolderId")
+const selectedFileId = toRef(workflowStore, "selectedWorkspaceFileId")
+
+// 최초 마운트 시 기본 폴더가 없다면 하나 생성
+if (!workspaceFolders.value.length) {
+  const defaultId = "folder-1"
+  workspaceFolders.value.push({
+    id: defaultId,
     name: "기본 워크스페이스",
     isOpen: true,
-    files: [
-      { id: "file-1", name: "분석1.ows" },
-      { id: "file-2", name: "테스트플로우.ows" }
-    ]
-  }
-])
-
-const selectedFolderId = ref<string | null>("folder-1")
-const selectedFileId = ref<string | null>(null)
+    files: [] as WorkspaceFile[],
+  })
+  selectedFolderId.value = defaultId
+  selectedFileId.value = null
+}
 
 /* 드래그 상태 */
 const dragFolderId = ref<string | null>(null)
 const dragFileId = ref<string | null>(null)
 
-/* 컨텍스트 메뉴 상태 */
+/* 우클릭 컨텍스트 메뉴 상태 */
 const isContextMenuVisible = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
@@ -237,40 +235,28 @@ const deleteTargetType = ref<ContextType>(null)
 const deleteFolderId = ref<string | null>(null)
 const deleteFileId = ref<string | null>(null)
 
-/* 숨겨진 OWS input */
-const owsFileInput = ref<HTMLInputElement | null>(null)
+/* ===== 유틸 ===== */
+const hideContextMenu = () => {
+  isContextMenuVisible.value = false
+}
 
-/* ===== 폴더/파일 조작 ===== */
+/* ===== 폴더 관련 ===== */
 const addFolder = () => {
   const id = `folder-${Date.now()}`
   workspaceFolders.value.push({
     id,
     name: "새 폴더",
     isOpen: true,
-    files: []
+    files: [] as WorkspaceFile[],
   })
+
   selectedFolderId.value = id
   selectedFileId.value = null
-}
-
-const addFileForFolder = (folder: WorkspaceFolder) => {
-  const id = `file-${Date.now()}`
-  folder.files.push({
-    id,
-    name: "새 워크플로우.ows"
-  })
-  selectedFolderId.value = folder.id
-  selectedFileId.value = id
 }
 
 const selectFolder = (folderId: string) => {
   selectedFolderId.value = folderId
   selectedFileId.value = null
-}
-
-const selectFile = (folderId: string, fileId: string) => {
-  selectedFolderId.value = folderId
-  selectedFileId.value = fileId
 }
 
 const toggleFolderOpen = (folder: WorkspaceFolder) => {
@@ -287,29 +273,75 @@ const onFolderDrop = (targetFolderId: string) => {
   if (!dragFolderId.value || !dragFileId.value) return
   if (dragFolderId.value === targetFolderId) return
 
-  const srcFolder = workspaceFolders.value.find((f) => f.id === dragFolderId.value)
-  const dstFolder = workspaceFolders.value.find((f) => f.id === targetFolderId)
+  const srcFolder = workspaceFolders.value.find(
+      (f) => f.id === dragFolderId.value,
+  )
+  const dstFolder = workspaceFolders.value.find(
+      (f) => f.id === targetFolderId,
+  )
   if (!srcFolder || !dstFolder) return
 
-  const idx = srcFolder.files.findIndex((f) => f.id === dragFileId.value)
-  if (idx === -1) return
+  const fileIndex = srcFolder.files.findIndex((f) => f.id === dragFileId.value)
+  if (fileIndex === -1) return
 
-  const [file] = srcFolder.files.splice(idx, 1)
-  if (!file) return
+  const [movedFile] = srcFolder.files.splice(fileIndex, 1)
+  if (!movedFile) return
 
-  dstFolder.files.push(file)
+  dstFolder.files.push(movedFile)
+
+  selectedFolderId.value = dstFolder.id
+  selectedFileId.value = movedFile.id
+
   dragFolderId.value = null
   dragFileId.value = null
 }
 
-/* ===== 컨텍스트 메뉴 ===== */
-const hideContextMenu = () => {
-  isContextMenuVisible.value = false
-  contextMenuType.value = null
-  contextFolderId.value = null
-  contextFileId.value = null
+/* ===== 파일 관련 ===== */
+// 폴더 하나에 대해 파일 선택 다이얼로그 띄우는 함수
+const addFileForFolder = (folder: WorkspaceFolder) => {
+  // 숨겨진 <input type="file"> 클릭
+  contextFolderId.value = folder.id
+  if (owsFileInput.value) {
+    // 같은 파일 다시 선택 가능하도록 초기화
+    owsFileInput.value.value = ""
+    owsFileInput.value.click()
+  }
 }
 
+const selectFile = (folderId: string, fileId: string) => {
+  selectedFolderId.value = folderId
+  selectedFileId.value = fileId
+}
+
+/* ===== OWS 파일 선택 버튼 (템플릿에서 @click="onImportOwsClick(folder)" 등으로 사용) ===== */
+/**
+ * 상단 "파일 추가" / 공용 버튼에서 사용하는 핸들러
+ * - 시그니처를 (event?: MouseEvent) 로 바꿔서
+ *   @click="onImportOwsClick" 와 타입을 맞춘다.
+ */
+const onImportOwsClick = (event?: MouseEvent) => {
+  // 1) 먼저 선택된 폴더 기준으로 찾음
+  let folder: WorkspaceFolder | null =
+      workspaceFolders.value.find(
+          (f) => f.id === selectedFolderId.value,
+      ) ?? null
+
+  // 2) 선택된 폴더가 없으면 첫 번째 폴더 사용
+  if (!folder) {
+    const firstFolder = workspaceFolders.value[0]
+    if (!firstFolder) {
+      // 폴더가 하나도 없으면 아무것도 안 함
+      return
+    }
+    folder = firstFolder
+  }
+
+  // 여기까지 오면 folder 는 WorkspaceFolder 확정
+  addFileForFolder(folder)
+}
+
+
+/* ===== 우클릭 컨텍스트 메뉴 ===== */
 const onFolderContextMenu = (e: MouseEvent, folder: WorkspaceFolder) => {
   isContextMenuVisible.value = true
   contextMenuX.value = e.clientX
@@ -325,7 +357,7 @@ const onFolderContextMenu = (e: MouseEvent, folder: WorkspaceFolder) => {
 const onFileContextMenu = (
     e: MouseEvent,
     folder: WorkspaceFolder,
-    file: WorkspaceFile
+    file: WorkspaceFile,
 ) => {
   isContextMenuVisible.value = true
   contextMenuX.value = e.clientX
@@ -342,7 +374,9 @@ const onFileContextMenu = (
 const openRenameDialogFromContext = () => {
   if (!contextMenuType.value || !contextFolderId.value) return
 
-  const folder = workspaceFolders.value.find((f) => f.id === contextFolderId.value)
+  const folder = workspaceFolders.value.find(
+      (f) => f.id === contextFolderId.value,
+  )
   if (!folder) return
 
   if (contextMenuType.value === "folder") {
@@ -350,10 +384,10 @@ const openRenameDialogFromContext = () => {
     renameFolderId.value = folder.id
     renameFileId.value = null
     renameName.value = folder.name
-  } else {
-    if (!contextFileId.value) return
+  } else if (contextMenuType.value === "file" && contextFileId.value) {
     const file = folder.files.find((f) => f.id === contextFileId.value)
     if (!file) return
+
     renameTargetType.value = "file"
     renameFolderId.value = folder.id
     renameFileId.value = file.id
@@ -366,6 +400,10 @@ const openRenameDialogFromContext = () => {
 
 const closeRenameDialog = () => {
   isRenameDialogVisible.value = false
+  renameTargetType.value = null
+  renameFolderId.value = null
+  renameFileId.value = null
+  renameName.value = ""
 }
 
 const confirmRename = () => {
@@ -374,20 +412,33 @@ const confirmRename = () => {
     return
   }
 
-  const folder = workspaceFolders.value.find((f) => f.id === renameFolderId.value)
+  const folder = workspaceFolders.value.find(
+      (f) => f.id === renameFolderId.value,
+  )
   if (!folder) {
     closeRenameDialog()
     return
   }
 
+  if (!renameName.value.trim()) {
+    alert("이름을 입력하세요.")
+    return
+  }
+
   if (renameTargetType.value === "folder") {
-    folder.name = renameName.value || folder.name
+    folder.name = renameName.value.trim()
   } else if (renameTargetType.value === "file" && renameFileId.value) {
     const file = folder.files.find((f) => f.id === renameFileId.value)
-    if (file) file.name = renameName.value || file.name
+    if (file) {
+      file.name = renameName.value.trim()
+    }
   }
 
   closeRenameDialog()
+}
+
+const onContextRename = () => {
+  openRenameDialogFromContext()
 }
 
 /* ===== 삭제 다이얼로그 ===== */
@@ -397,12 +448,16 @@ const openDeleteDialogFromContext = () => {
   deleteTargetType.value = contextMenuType.value
   deleteFolderId.value = contextFolderId.value
   deleteFileId.value = contextFileId.value
+
   isDeleteDialogVisible.value = true
   hideContextMenu()
 }
 
 const closeDeleteDialog = () => {
   isDeleteDialogVisible.value = false
+  deleteTargetType.value = null
+  deleteFolderId.value = null
+  deleteFileId.value = null
 }
 
 const confirmDelete = () => {
@@ -411,7 +466,9 @@ const confirmDelete = () => {
     return
   }
 
-  const idx = workspaceFolders.value.findIndex((f) => f.id === deleteFolderId.value)
+  const idx = workspaceFolders.value.findIndex(
+      (f) => f.id === deleteFolderId.value,
+  )
   if (idx === -1) {
     closeDeleteDialog()
     return
@@ -425,18 +482,22 @@ const confirmDelete = () => {
 
   if (deleteTargetType.value === "folder") {
     if (folder.files.length > 0) {
-      alert("비어있는 폴더만 삭제할 수 있습니다.")
+      alert("폴더가 비어있지 않으면 삭제할 수 없습니다.")
       closeDeleteDialog()
       return
     }
+
     workspaceFolders.value.splice(idx, 1)
+
     if (selectedFolderId.value === folder.id) {
       selectedFolderId.value = null
+      selectedFileId.value = null
     }
   } else if (deleteTargetType.value === "file" && deleteFileId.value) {
     const fidx = folder.files.findIndex((f) => f.id === deleteFileId.value)
     if (fidx !== -1) {
       folder.files.splice(fidx, 1)
+
       if (selectedFileId.value === deleteFileId.value) {
         selectedFileId.value = null
       }
@@ -446,26 +507,36 @@ const confirmDelete = () => {
   closeDeleteDialog()
 }
 
+const onContextDelete = () => {
+  openDeleteDialogFromContext()
+}
+
 /* Delete 키 처리 */
 const onDeleteKey = () => {
   if (selectedFileId.value) {
     deleteTargetType.value = "file"
     deleteFolderId.value = selectedFolderId.value
     deleteFileId.value = selectedFileId.value
-    isDeleteDialogVisible.value = true
+    openDeleteDialogFromContext()
   } else if (selectedFolderId.value) {
     deleteTargetType.value = "folder"
     deleteFolderId.value = selectedFolderId.value
     deleteFileId.value = null
-    isDeleteDialogVisible.value = true
+    openDeleteDialogFromContext()
   }
 }
 
-/* ===== OWS 임포트 ===== */
-const onImportOwsClick = () => {
-  owsFileInput.value?.click()
+/* 컨텍스트 메뉴에서 파일 추가 */
+const onContextAddFile = () => {
+  const folder = workspaceFolders.value.find(
+      (f) => f.id === contextFolderId.value,
+  )
+  if (!folder) return
+
+  addFileForFolder(folder)
 }
 
+/* OWS 파일 선택 (숨겨진 input[type="file"] 과 연동) */
 const onOwsFileSelected = async (e: Event) => {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -480,7 +551,6 @@ const onOwsFileSelected = async (e: Event) => {
     return
   }
 
-  // 컨텍스트 폴더 기준, 없으면 선택된 폴더 기준
   const folderId = contextFolderId.value ?? selectedFolderId.value
   if (!folderId) {
     input.value = ""
@@ -496,7 +566,7 @@ const onOwsFileSelected = async (e: Event) => {
   const id = `file-${Date.now()}`
   folder.files.push({
     id,
-    name: file.name
+    name: file.name,
   })
 
   selectedFolderId.value = folder.id
