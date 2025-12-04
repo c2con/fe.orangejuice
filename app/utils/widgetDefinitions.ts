@@ -1,5 +1,42 @@
 // src/utils/widgetDefinitions.ts
 
+// ---------------------------
+// 1. 카테고리 공통 정의
+// ---------------------------
+
+export const CATEGORY_LABELS: Record<string, string> = {
+    data: 'Data',
+    transform: 'Transform',
+    visualize: 'Visualize',
+    model: 'Model',
+    evaluate: 'Evaluate',
+    unsupervised: 'Unsupervised',
+    other: 'Other'
+}
+
+export const CATEGORY_ORDER = [
+    'data',
+    'transform',
+    'visualize',
+    'model',
+    'evaluate',
+    'unsupervised',
+    'other'
+]
+
+export const CATEGORY_COLORS: Record<string, string> = {
+    data: '#FFDCA8',
+    transform: '#FFCCBC',
+    visualize: '#FFCDD2',
+    model: '#E1BEE7',
+    evaluate: '#B2DFDB',
+    unsupervised: '#CFD8DC',
+    other: '#F5F5F5'
+}
+
+// ---------------------------
+// 2. 위젯 타입 정의
+// ---------------------------
 export interface WidgetDefinition {
     id: string;
     label: string;
@@ -711,4 +748,15 @@ export function getWidgetDef(widgetName: string): WidgetDefinition {
         hasInput: true, hasOutput: true,
         icon: "/icons/widgets/default.svg"
     };
+}
+
+// 카테고리 색상 가져오기
+export function getCategoryColor(categoryId: string): string {
+    return CATEGORY_COLORS[categoryId] ?? CATEGORY_COLORS.other ?? '#CCCCCC'
+}
+
+// 위젯 → 색상
+export function getWidgetColor(widgetId: string): string {
+    const def = getWidgetDef(widgetId)
+    return getCategoryColor(def.categoryId)
 }

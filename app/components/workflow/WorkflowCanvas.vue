@@ -6,17 +6,56 @@
           :nodes="flowNodes"
           :edges="flowEdges"
           :node-types="nodeTypes"
-          fit-view
-          @node-drag="handleNodeDrag"
           @pane-ready="handlePaneReady"
+          @node-drag="handleNodeDrag"
+
+          @connect-start="handleConnectStart"
+          @connect="handleConnect"
+          @connect-end="handleConnectEnd"
+
+          @pane-click="handlePaneClick"
+          @pane-context-menu="handlePaneContextMenu"
       />
     </ClientOnly>
+    <!-- 위젯 선택 팝업 -->
+    <div
+        v-if="widgetPicker.visible"
+        ref="pickerRef"
+        class="oj-widget-picker"
+        :style="{
+      left: widgetPicker.screenX + 'px',
+      top: widgetPicker.screenY + 'px'
+    }"
+        @mousedown.stop
+        @contextmenu.prevent
+    >
+      <input
+          v-model="searchText"
+          class="oj-widget-picker-search"
+          placeholder="Search for a widget..."
+      />
+
+      <ul class="oj-widget-picker-list">
+        <li
+            v-for="w in filteredWidgets"
+            :key="w.id"
+            class="oj-widget-picker-item"
+            @click="createNodeFromWidget(w)"
+        >
+        <span class="oj-widget-picker-icon" :style="{ backgroundColor: w.categoryColor }">
+          <!-- 아이콘은 widgetDefinitions.ts의 icon 필드 사용 -->
+          <img :src="w.icon" alt="" />
+        </span>
+          <span class="oj-widget-picker-label">{{ w.label }}</span>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
 <script lang="ts">
 import { defineNuxtComponent } from '#app'
-import { computed, markRaw, watch, nextTick, ref } from 'vue'
+import { computed, markRaw, watch, nextTick, ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import type { NodeDragEvent, NodeTypesObject, Edge } from '@vue-flow/core'
 
@@ -26,7 +65,8 @@ import '@vue-flow/core/dist/theme-default.css'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { WorkflowEdge } from '@/stores/workflow'
 import OjNode from '@/components/workflow/OjNode.vue'
-import { getWidgetDef } from '@/utils/widgetDefinitions'
+import { getWidgetDef, WIDGET_DEFINITIONS } from '@/utils/widgetDefinitions'
+import type { WidgetDefinition } from '@/utils/widgetDefinitions'
 import { NODE_DIAMETER } from '@/utils/workflowGeometry'
 
 export default defineNuxtComponent({
@@ -35,12 +75,85 @@ export default defineNuxtComponent({
     VueFlow,
   },
   setup() {
-    const hasViewportFitted = ref(false)  // 최초 1회만 fit 하도록 플래그
+    const hasViewportFitted = ref(false)
 
     const workflowStore = useWorkflowStore()
 
-    // VueFlow API (뷰포트 제어용)
-    const { setViewport, dimensions } = useVueFlow()
+    // VueFlow API
+    const {
+      setViewport,
+      dimensions,
+      project,
+    } = useVueFlow()
+
+    // -----------------------------
+    // 연결 / 위젯 팝업 상태
+    // -----------------------------
+    const connectingFrom = ref<{
+      nodeId: string
+      handleId?: string
+      handleType: 'source' | 'target'
+    } | null>(null)
+
+    const hasConnected = ref(false)
+
+    const widgetPicker = reactive({
+      visible: false,
+      screenX: 0,
+      screenY: 0,
+      flowX: 0,
+      flowY: 0,
+    })
+
+    const pickerRef = ref<HTMLElement | null>(null)
+
+    const closeWidgetPicker = () => {
+      widgetPicker.visible = false
+      searchText.value = ''
+      connectingFrom.value = null
+      hasConnected.value = false
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && widgetPicker.visible) {
+        closeWidgetPicker()
+      }
+    }
+    const onGlobalMouseDown = (e: MouseEvent) => {
+      if (!widgetPicker.visible) return
+      const el = pickerRef.value
+      if (el && el.contains(e.target as Node)) {
+        // 팝업 내부 클릭이면 무시
+        return
+      }
+      closeWidgetPicker()
+    }
+
+    onMounted(() => {
+      window.addEventListener('keydown', onKeyDown)
+      window.addEventListener('mousedown', onGlobalMouseDown)
+    })
+
+    onBeforeUnmount(() => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('mousedown', onGlobalMouseDown)
+    })
+
+    // 위젯 검색어 & 필터 목록
+    const searchText = ref('')
+
+    const allWidgets = computed<WidgetDefinition[]>(() =>
+        Object.values(WIDGET_DEFINITIONS),
+    )
+
+    const filteredWidgets = computed<WidgetDefinition[]>(() => {
+      const q = searchText.value.trim().toLowerCase()
+      if (!q) return allWidgets.value
+      return allWidgets.value.filter((w) =>
+          w.label.toLowerCase().includes(q) ||
+          w.id.toLowerCase().includes(q),
+      )
+    })
 
     // -----------------------------
     // 1) 커스텀 노드 타입
@@ -57,7 +170,6 @@ export default defineNuxtComponent({
       const edgesByTarget: Record<string, WorkflowEdge[]> = {}
       const storeEdges = workflowStore.edges as WorkflowEdge[]
 
-      // 타겟 노드 기준으로 그룹핑
       storeEdges.forEach((edge) => {
         ;(edgesByTarget[edge.target] ??= []).push(edge)
       })
@@ -65,7 +177,6 @@ export default defineNuxtComponent({
       workflowStore.nodes.forEach((node) => {
         const incomingEdges = edgesByTarget[node.id] || []
 
-        // 소스 노드의 Y 좌표 기준으로 정렬 (위→아래)
         const sortedEdges = incomingEdges
             .map((e) => {
               const src = workflowStore.nodes.find((n) => n.id === e.source)
@@ -148,7 +259,7 @@ export default defineNuxtComponent({
       const findNodeById = (id: string) =>
           workflowStore.nodes.find((n) => n.id === id)
 
-      // --- source 기준 정렬 → out-0, out-1, ...
+      // source 기준 정렬
       const edgesBySource: Record<string, WorkflowEdge[]> = {}
       validEdges.forEach((e) => {
         ;(edgesBySource[e.source] ??= []).push(e)
@@ -178,7 +289,7 @@ export default defineNuxtComponent({
         })
       }
 
-      // --- target 기준 정렬 → in-0, in-1, ...
+      // target 기준 정렬
       const edgesByTarget: Record<string, WorkflowEdge[]> = {}
       validEdges.forEach((e) => {
         ;(edgesByTarget[e.target] ??= []).push(e)
@@ -216,7 +327,7 @@ export default defineNuxtComponent({
     })
 
     // -----------------------------
-    // 5) 노드 드래그 시 위치를 스토어에 반영
+    // 5) 노드 드래그 → 스토어 반영
     // -----------------------------
     function handleNodeDrag(event: NodeDragEvent) {
       const targetNode = workflowStore.nodes.find((n) => n.id === event.node.id)
@@ -227,15 +338,14 @@ export default defineNuxtComponent({
     }
 
     // -----------------------------
-    // 6) 뷰포트 계산 (노드 bounding box 기준)
+    // 6) 뷰포트 계산
     // -----------------------------
     const VIEWPORT_PADDING_X = 0.15
-    const VIEWPORT_PADDING_Y = 0.10
+    const VIEWPORT_PADDING_Y = 0.1
     const MIN_ZOOM = 0.05
     const MAX_ZOOM = 1.5
 
     const fitAllNodesWithViewport = async () => {
-      // 이미 한 번 맞췄으면 다시는 안 함
       if (hasViewportFitted.value) return
 
       const nodes = flowNodes.value
@@ -248,7 +358,6 @@ export default defineNuxtComponent({
       const viewH = dim?.height ?? 0
       if (viewW <= 0 || viewH <= 0) return
 
-      // 1) 노드 bounding box (원래 그래프 크기)
       let minX = Infinity
       let maxX = -Infinity
       let minY = Infinity
@@ -263,27 +372,27 @@ export default defineNuxtComponent({
         if (y > maxY) maxY = y
       })
 
-      // 노드 하나도 없으면 종료
-      if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) return
+      if (
+          !isFinite(minX) ||
+          !isFinite(maxX) ||
+          !isFinite(minY) ||
+          !isFinite(maxY)
+      ) return
 
-      // 노드 크기까지 포함한 "원래" 폭/높이
-      const rawWidth = (maxX - minX) + NODE_DIAMETER
-      const rawHeight = (maxY - minY) + NODE_DIAMETER
+      const rawWidth = maxX - minX + NODE_DIAMETER
+      const rawHeight = maxY - minY + NODE_DIAMETER
 
-      // 2) padding 비율만큼 bbox 를 확장 (유격)
       const marginX = rawWidth * VIEWPORT_PADDING_X
       const marginY = rawHeight * VIEWPORT_PADDING_Y
 
       const graphWidth = rawWidth + marginX * 2
       const graphHeight = rawHeight + marginY * 2
 
-      // 3) 줌 배율 계산 (확장된 graphWidth/Height 기준)
       const zoomX = viewW / graphWidth
       const zoomY = viewH / graphHeight
       let zoom = Math.min(zoomX, zoomY)
       zoom = Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM)
 
-      // 4) 그래프 중심 ↔ 화면 중심 정렬
       const graphCenterX = minX + rawWidth / 2
       const graphCenterY = minY + rawHeight / 2
 
@@ -295,15 +404,126 @@ export default defineNuxtComponent({
 
       await setViewport({ x, y, zoom })
 
-      // ✅ 여기서 플래그 ON → 이후로는 더 이상 viewport 자동 조정 안 함
       hasViewportFitted.value = true
     }
 
-    // pane 준비 시
     const handlePaneReady = async () => {
       await fitAllNodesWithViewport()
     }
 
+    // -----------------------------
+    // 7) 연결 이벤트 (arc/handle 공통)
+    // -----------------------------
+    const handleConnectStart = (connectionEvent: any) => {
+      const { nodeId, handleId, handleType } = connectionEvent
+      if (!nodeId || !handleType) {
+        connectingFrom.value = null
+        return
+      }
+
+      connectingFrom.value = {
+        nodeId,
+        handleId,
+        handleType,
+      }
+      hasConnected.value = false
+    }
+
+    const handleConnect = (connection: any) => {
+      hasConnected.value = true
+      // 실제 edge 추가는 store 기반으로 하고 있으니 여기서는 플래그만
+    }
+
+    const openWidgetPickerAt = (clientX: number, clientY: number) => {
+      const flowPos = project({ x: clientX, y: clientY })
+
+      widgetPicker.visible = true
+      widgetPicker.screenX = clientX
+      widgetPicker.screenY = clientY
+      widgetPicker.flowX = flowPos.x
+      widgetPicker.flowY = flowPos.y
+    }
+
+    // connect-end: 마우스를 떼는 순간 (성공/실패 모두)
+    const handleConnectEnd = (connectionEvent: any) => {
+      // 연결이 실제로 만들어졌으면(=다른 노드에 연결됨) 팝업 X
+      if (!connectingFrom.value || hasConnected.value) {
+        connectingFrom.value = null
+        hasConnected.value = false
+        return
+      }
+
+      // VueFlow 가 넘겨주는 객체에서 실제 MouseEvent 추출
+      const mouse: MouseEvent | undefined =
+          connectionEvent?.event ?? connectionEvent
+
+      if (!mouse) {
+        connectingFrom.value = null
+        hasConnected.value = false
+        return
+      }
+
+      // 빈 공간에 드롭한 경우 → 팝업 위치 잡기
+      const { clientX, clientY } = mouse
+      const flowPos = project({ x: clientX, y: clientY })
+
+      widgetPicker.visible = true
+      widgetPicker.screenX = clientX
+      widgetPicker.screenY = clientY
+      widgetPicker.flowX = flowPos.x
+      widgetPicker.flowY = flowPos.y
+
+      connectingFrom.value = null
+      hasConnected.value = false
+    }
+
+    const handlePaneContextMenu = (event: MouseEvent) => {
+      event.preventDefault()
+      // 순수 오른쪽 클릭이므로 기존 연결 상태는 초기화
+      connectingFrom.value = null
+      hasConnected.value = false
+      openWidgetPickerAt(event.clientX, event.clientY)
+    }
+
+    const handlePaneClick = () => {
+      if (widgetPicker.visible) {
+        closeWidgetPicker()
+      }
+    }
+
+    // -----------------------------
+    // 8) 위젯 선택 → 새 노드 & 엣지 생성
+    // -----------------------------
+    const createNodeFromWidget = (w: WidgetDefinition) => {
+      const newNodeId = `node_${Date.now()}`
+
+      const newNode: any = {
+            id: newNodeId,
+            widgetType: w.id,
+            name: w.label,
+            title: w.label,
+            position: { x: widgetPicker.flowX, y: widgetPicker.flowY },
+          }
+
+      ;(workflowStore.nodes as any[]).push(newNode)
+
+      // 연결 드래그에서 온 경우에만 edge 생성
+      if (connectingFrom.value) {
+        const from = connectingFrom.value
+        const newEdge: any = {
+              id: `edge_${Date.now()}`,
+              source: from.handleType === 'source' ? from.nodeId : newNodeId,
+              target: from.handleType === 'source' ? newNodeId : from.nodeId,
+            }
+        ;(workflowStore.edges as any[]).push(newEdge)
+      }
+
+      closeWidgetPicker()
+    }
+
+    // -----------------------------
+    // 9) 노드 수 변화 시 최초 1회 fit
+    // -----------------------------
     watch(
         () => flowNodes.value.length,
         async (newLen, oldLen) => {
@@ -319,10 +539,22 @@ export default defineNuxtComponent({
       nodeTypes,
       handleNodeDrag,
       handlePaneReady,
+      handleConnectStart,
+      handleConnect,
+      handleConnectEnd,
+      handlePaneContextMenu,
+      handlePaneClick,
+
+      widgetPicker,
+      pickerRef,
+      searchText,
+      filteredWidgets,
+      createNodeFromWidget,
     }
   },
 })
 </script>
+
 
 <style scoped>
 .oj-workflow-wrapper {
@@ -336,5 +568,75 @@ export default defineNuxtComponent({
   width: 100%;
   height: 100%;
   background: #f8fafc;
+}
+
+/* 팝업 컨테이너 */
+.oj-widget-picker {
+  position: absolute;
+  min-width: 260px;
+  max-height: 380px;
+  border: 1px solid #c4c4c4;
+  background: #fdfdfd;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 50;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+/* 검색창 */
+.oj-widget-picker-search {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #d0d0d0;
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+/* 리스트 */
+.oj-widget-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+/* 항목 */
+.oj-widget-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.oj-widget-picker-item:hover {
+  background: #e6f0ff;
+}
+
+/* 아이콘 영역 (카테고리 색 배경을 줄 거면 여기서) */
+.oj-widget-picker-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.oj-widget-picker-icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.oj-widget-picker-label {
+  flex: 1;
 }
 </style>

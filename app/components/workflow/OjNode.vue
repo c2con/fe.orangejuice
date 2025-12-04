@@ -13,12 +13,15 @@
               :d="inputArcPath"
               class="oj-arc-path"
               :class="{ 'is-connected': inputConnected, 'is-dashed': !inputConnected }"
+              @mousedown.left="onArcMouseDown($event, 'input')"
           />
+
           <path
               v-if="hasOutput"
               :d="outputArcPath"
               class="oj-arc-path"
               :class="{ 'is-connected': outputConnected, 'is-dashed': !outputConnected }"
+              @mousedown.left="onArcMouseDown($event, 'output')"
           />
         </svg>
       </div>
@@ -70,7 +73,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CSSProperties } from 'vue'
-import { Handle, useVueFlow, Position } from '@vue-flow/core'
+import {
+  Handle,
+  Position,
+  useVueFlow,
+  useHandle,
+} from '@vue-flow/core'
 import { getWidgetColors } from '@/utils/widgetStyle'
 import { getWidgetDef } from '@/utils/widgetDefinitions'
 import type { WidgetDefinition } from '@/utils/widgetDefinitions'
@@ -100,6 +108,7 @@ const props = defineProps<{ id: string; data: NodeData }>()
 
 // Vue Flow 상태
 const { edges, findNode } = useVueFlow()
+
 
 // 위젯 정의
 const widgetDef = computed<WidgetDefinition>(() => {
@@ -164,6 +173,20 @@ const circleStyle = computed<CSSProperties>(() => ({
   height: '100%',
   boxSizing: 'border-box',
 }))
+
+// 원호에서 마우스를 누르면 -> 해당 side의 handle의 onMouseDown을 그대로 호출
+const onArcMouseDown = (e: MouseEvent, side: 'input' | 'output') => {
+  e.preventDefault()
+  e.stopPropagation()
+
+  if (side === 'output') {
+    const h = outputHandles.value[0]?.vue
+    h?.handlePointerDown(e)
+  } else {
+    const h = inputHandles.value[0]?.vue
+    h?.handlePointerDown(e)
+  }
+}
 
 // ===== 아치 및 핸들 위치 계산 =====
 function getArcGeometry(isOutput: boolean, count: number) {
@@ -301,7 +324,16 @@ const inputData = computed(() => {
 })
 
 const inputArcPath = computed(() => inputData.value.pathD)
-const inputHandles = computed(() => inputData.value.points)
+const inputHandles = computed(() =>
+    inputData.value.points.map((p, idx) => ({
+      ...p,
+      vue: useHandle({
+        nodeId: props.id,
+        handleId: `in-${idx}`,
+        type: 'target',
+      })
+    }))
+)
 
 // ===== Output 데이터 =====
 const outputData = computed(() => {
@@ -337,7 +369,16 @@ const outputData = computed(() => {
 })
 
 const outputArcPath = computed(() => outputData.value.pathD)
-const outputHandles = computed(() => outputData.value.points)
+const outputHandles = computed(() =>
+    outputData.value.points.map((p, idx) => ({
+      ...p,
+      vue: useHandle({
+        nodeId: props.id,
+        handleId: `out-${idx}`,
+        type: 'source',
+      })
+    }))
+)
 </script>
 
 <style scoped>
@@ -397,8 +438,8 @@ const outputHandles = computed(() => outputData.value.points)
   width: 200px;
   height: 200px;
   transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: -1;
+  pointer-events: auto;   /* ✅ 원호도 마우스 이벤트 대상 */
+  z-index: -1;            /* 일단 장식 레이어 그대로 유지 */
 }
 
 .oj-svg-canvas {
@@ -414,20 +455,25 @@ const outputHandles = computed(() => outputData.value.points)
   width: 100%;
   height: 100%;
   z-index: 20;
-  pointer-events: none;
+  pointer-events: auto;   /* ✅ 핸들이 클릭/드래그 받는 레이어 */
 }
 
+/* 원호 */
 .oj-arc-path {
   fill: none;
   stroke: #bdc3c7;
   stroke-width: 4px;
   stroke-linecap: round;
   transition: all 0.3s ease;
+
+  cursor: crosshair;      /* 🔥핸들과 동일한 “큰 +” */
+  pointer-events: stroke;
 }
 
 .oj-arc-path.is-dashed {
-  stroke-dasharray: 5 5;
-  opacity: 0.6;
+  stroke: #d0d0d0;       /* 옅은 회색 */
+  stroke-dasharray: 6 6; /* 점선 */
+  opacity: 0.5;          /* 옅게 표시 */
 }
 
 .oj-arc-path.is-connected {
