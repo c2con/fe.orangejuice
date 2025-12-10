@@ -394,17 +394,32 @@ export default defineNuxtComponent({
       connectingFrom.value = null
     }
 
-    const openWidgetPickerAt = (cx: number, cy: number) => {
-      const flowPos = project({ x: cx, y: cy })
+    const openWidgetPickerAt = (px: number, py: number) => {
+      // 클릭한 화면 좌표를 그대로 대화상자 좌상단으로 사용
+      widgetPicker.screenX = px
+      widgetPicker.screenY = py
+
+      // VueFlow 좌표로 변환
+      const flowPos = project({ x: px, y: py })
+
+      widgetPicker.flowX = flowPos.x
+      widgetPicker.flowY = flowPos.y
+
       widgetPicker.visible = true
-      widgetPicker.screenX = cx; widgetPicker.screenY = cy
-      widgetPicker.flowX = flowPos.x; widgetPicker.flowY = flowPos.y
-      searchText.value = ''
-      nextTick(() => searchInputRef.value?.focus())
+
+      // (선택) 검색창 자동 포커스
+      nextTick(() => {
+        if (searchInputRef.value) searchInputRef.value.focus()
+      })
     }
     const closeWidgetPicker = () => { widgetPicker.visible = false }
     const handlePaneContextMenu = (e: MouseEvent) => { e.preventDefault(); openWidgetPickerAt(e.clientX, e.clientY) }
-    const handlePaneClick = () => { if (widgetPicker.visible) closeWidgetPicker() }
+    const handlePaneClick = (e: MouseEvent) => {
+      // 왼쪽 버튼 클릭일 때만 동작 (원하면 제거해도 됨)
+      if (e.button !== 0) return
+
+      openWidgetPickerAt(e.clientX, e.clientY)
+    }
 
     const createNodeFromWidget = (w: WidgetDefinition & { categoryColor?: string }) => {
       const newNodeId = `node_${Date.now()}`
@@ -472,7 +487,7 @@ export default defineNuxtComponent({
 <style scoped>
 .oj-workflow-wrapper { flex: 1; display: flex; height: 100%; min-width: 0; }
 .oj-workflow-canvas { width: 100%; height: 100%; background: #f8fafc; }
-.oj-widget-picker { position: fixed; z-index: 1000; transform: translate(-50%, -50%); min-width: 260px; padding: 8px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 8px; }
+.oj-widget-picker { position: fixed; z-index: 1000; min-width: 260px; padding: 8px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 8px; }
 .oj-widget-picker-search { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
 .oj-widget-picker-search:focus { border-color: #2196F3; }
 .oj-widget-picker-list { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; }
