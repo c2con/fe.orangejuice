@@ -723,40 +723,61 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
     "Tree Viewer": { id: "TreeViewer", label: "Tree Viewer", categoryId: "visualize", inputs: ["Tree"], outputs: ["Selected Data", "Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/visualize/TreeViewer.svg" }
 };
 
-export function getWidgetDef(widgetName: string): WidgetDefinition {
-    if (WIDGET_DEFINITIONS[widgetName]) return WIDGET_DEFINITIONS[widgetName];
-
-    const safeName = widgetName || "";
-    // 공백 제거
-    const normalized = safeName.replace(/\s+/g, '');
-    if (WIDGET_DEFINITIONS[normalized]) return WIDGET_DEFINITIONS[normalized];
-
-    // [추가] 대소문자 무시하고 검색 (Case-insensitive search)
-    // 키(Key)들을 순회하며 대소문자 구분 없이 비교
-    const lowerNormalized = normalized.toLowerCase();
-    const foundKey = Object.keys(WIDGET_DEFINITIONS).find(key =>
-        key.toLowerCase() === lowerNormalized
-    );
-    if (foundKey) return WIDGET_DEFINITIONS[foundKey]!;
-
-    console.warn(`[getWidgetDef] 매칭 실패! 요청: "${widgetName}, ${normalized}"`);
+/**
+ * [수정됨] 정의되지 않은 위젯 요청 시 에러 방지용 기본 객체
+ * 사용자님의 WidgetDefinition 인터페이스 구조에 맞췄습니다.
+ */
+function getFallbackWidget(originalName: string): WidgetDefinition {
     return {
-        id: safeName,
-        label: safeName,
-        categoryId: "data",
-        inputs: ["Data"], outputs: ["Data"],
-        hasInput: true, hasOutput: true,
-        icon: "/icons/widgets/default.svg"
+        id: originalName,
+        label: originalName,
+        categoryId: 'other',
+        inputs: [],   // [수정] 기본값은 비워둠 (엣지 분석 후 채움)
+        outputs: [],  // [수정] 기본값은 비워둠
+        hasInput: false,  // 기본값: 없음
+        hasOutput: false, // 기본값: 없음
+        icon: '/icons/widgets/default.svg'
     };
 }
+/**
+ * [수정됨] 위젯 정의를 찾는 함수 (객체 구조 호환)
+ */
+export function getWidgetDef(idOrName: string): WidgetDefinition {
+    if (!idOrName) return getFallbackWidget("Unknown");
 
-// 카테고리 색상 가져오기
-export function getCategoryColor(categoryId: string): string {
-    return CATEGORY_COLORS[categoryId] ?? CATEGORY_COLORS.other ?? '#CCCCCC'
+    // 1. Key(ID)로 직접 찾기 (가장 빠르고 정확함)
+    if (WIDGET_DEFINITIONS[idOrName]) {
+        return WIDGET_DEFINITIONS[idOrName];
+    }
+
+    // 2. Key로 못 찾았다면, 전체를 순회하며 이름 비교 (Fuzzy Search)
+    // Object.values()를 사용하여 객체를 배열로 변환 후 검색
+    const allWidgets = Object.values(WIDGET_DEFINITIONS);
+
+    // 공백 제거 및 소문자 변환 후 비교 ("Import Images" -> "importimages")
+    const searchKey = idOrName.replace(/\s+/g, '').toLowerCase();
+
+    const def = allWidgets.find((w: WidgetDefinition) => {
+        const wId = w.id.replace(/\s+/g, '').toLowerCase();
+        const wLabel = w.label.replace(/\s+/g, '').toLowerCase();
+
+        return wId === searchKey || wLabel === searchKey;
+    });
+
+    if (def) return def;
+
+    // 3. 그래도 없으면 기본값 반환 (에러 방지)
+    console.warn(`[widgetDefinitions] 위젯 정의를 찾을 수 없습니다: "${idOrName}"`);
+    return getFallbackWidget(idOrName);
 }
 
-// 위젯 → 색상
+// 카테고리 색상 가져오기 (기존 유지)
+export function getCategoryColor(categoryId: string): string {
+    return CATEGORY_COLORS[categoryId] ?? CATEGORY_COLORS.other ?? '#CCCCCC';
+}
+
+// 위젯 → 색상 (기존 유지)
 export function getWidgetColor(widgetId: string): string {
-    const def = getWidgetDef(widgetId)
-    return getCategoryColor(def.categoryId)
+    const def = getWidgetDef(widgetId);
+    return getCategoryColor(def.categoryId);
 }

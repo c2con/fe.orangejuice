@@ -6,637 +6,458 @@
           :nodes="flowNodes"
           :edges="flowEdges"
           :node-types="nodeTypes"
+          :default-edge-options="{ type: 'default', animated: false }"
           @pane-ready="handlePaneReady"
           @node-drag="handleNodeDrag"
-
           @connect-start="handleConnectStart"
           @connect="handleConnect"
           @connect-end="handleConnectEnd"
-
-          @pane-click="handlePaneClick"
           @pane-context-menu="handlePaneContextMenu"
-      />
-    </ClientOnly>
-    <!-- 위젯 선택 팝업 -->
-    <div
-        v-if="widgetPicker.visible"
-        ref="pickerRef"
-        class="oj-widget-picker"
-        :style="{
-      left: widgetPicker.screenX + 'px',
-      top: widgetPicker.screenY + 'px'
-    }"
-        @mousedown.stop
-        @contextmenu.prevent
-    >
-      <input
-          v-model="searchText"
-          class="oj-widget-picker-search"
-          placeholder="Search for a widget..."
-      />
+          @pane-click="handlePaneClick"
+      >
+        <Background pattern-color="#888" :gap="20" :size="1.5" />
+      </VueFlow>
 
-      <ul class="oj-widget-picker-list">
-        <li
-            v-for="w in filteredWidgets"
-            :key="w.id"
-            class="oj-widget-picker-item"
-            @click="createNodeFromWidget(w)"
-        >
-        <span class="oj-widget-picker-icon" :style="{ backgroundColor: w.categoryColor }">
-          <!-- 아이콘은 widgetDefinitions.ts의 icon 필드 사용 -->
-          <img :src="w.icon" alt="" />
-        </span>
-          <span class="oj-widget-picker-label">{{ w.label }}</span>
-        </li>
-      </ul>
-    </div>
+      <div
+          v-if="widgetPicker.visible"
+          class="oj-widget-picker"
+          :style="{ left: widgetPicker.screenX + 'px', top: widgetPicker.screenY + 'px' }"
+          ref="pickerRef"
+          @mousedown.stop
+          @contextmenu.prevent
+      >
+        <input
+            v-model="searchText"
+            class="oj-widget-picker-search"
+            placeholder="Search..."
+            ref="searchInputRef"
+        />
+        <ul class="oj-widget-picker-list">
+          <li
+              v-for="w in filteredWidgets"
+              :key="w.id"
+              class="oj-widget-picker-item"
+              @click="createNodeFromWidget(w)"
+          >
+            <span class="oj-widget-picker-icon" :style="{ backgroundColor: w.categoryColor }">
+              <img :src="w.icon" alt="" />
+            </span>
+            <span class="oj-widget-picker-label">{{ w.label }}</span>
+          </li>
+        </ul>
+      </div>
+    </ClientOnly>
   </div>
 </template>
 
 <script lang="ts">
 import { defineNuxtComponent } from '#app'
-import { computed, markRaw, watch, nextTick, ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import {
+  computed,
+  markRaw,
+  watch,
+  nextTick,
+  ref,
+  reactive,
+  onMounted,
+  onBeforeUnmount,
+} from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
-import type { NodeDragEvent, NodeTypesObject, Edge } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import type { NodeDragEvent, NodeTypesObject } from '@vue-flow/core'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
 import { useWorkflowStore } from '@/stores/workflow'
-import type { WorkflowEdge } from '@/stores/workflow'
 import OjNode from '@/components/workflow/OjNode.vue'
-import { getWidgetDef, WIDGET_DEFINITIONS } from '@/utils/widgetDefinitions'
+
+import { getWidgetDef, WIDGET_DEFINITIONS, getCategoryColor } from '@/utils/widgetDefinitions'
 import type { WidgetDefinition } from '@/utils/widgetDefinitions'
-import { NODE_DIAMETER } from '@/utils/workflowGeometry'
+
+import { NODE_DIAMETER, MIN_ZOOM, MAX_ZOOM, getAngleScore } from '@/utils/workflowGeometry'
 
 export default defineNuxtComponent({
-  ssr: false,
-  components: {
-    VueFlow,
-  },
+  components: { VueFlow, Background },
   setup() {
-    const hasViewportFitted = ref(false)
-
     const workflowStore = useWorkflowStore()
+    const { project, setViewport, dimensions } = useVueFlow()
 
-    // VueFlow API
-    const {
-      setViewport,
-      dimensions,
-      project,
-    } = useVueFlow()
+    const widgetPicker = reactive({ visible: false, screenX: 0, screenY: 0, flowX: 0, flowY: 0 })
+    const pickerRef = ref<HTMLElement | null>(null)
+    const searchInputRef = ref<HTMLInputElement | null>(null)
+    const searchText = ref('')
 
-    // -----------------------------
-    // 연결 / 위젯 팝업 상태
-    // -----------------------------
-    const connectingFrom = ref<{
-      nodeId: string
-      handleId?: string
-      handleType: 'source' | 'target'
-    } | null>(null)
-
-    const hasConnected = ref(false)
-
-    const widgetPicker = reactive({
-      visible: false,
-      screenX: 0,
-      screenY: 0,
-      flowX: 0,
-      flowY: 0,
+    const allWidgets = computed(() => Object.values(WIDGET_DEFINITIONS).map((w) => ({ ...w, categoryColor: getCategoryColor(w.categoryId) })))
+    const filteredWidgets = computed(() => {
+      const q = searchText.value.trim().toLowerCase()
+      if (!q) return allWidgets.value
+      return allWidgets.value.filter((w) => w.label.toLowerCase().includes(q) || w.id.toLowerCase().includes(q))
     })
 
-    const pickerRef = ref<HTMLElement | null>(null)
+    const nodeTypes: NodeTypesObject = { 'oj-node': markRaw(OjNode) as any }
 
-    const closeWidgetPicker = () => {
-      widgetPicker.visible = false
-      searchText.value = ''
-      connectingFrom.value = null
-      hasConnected.value = false
-    }
+    // [디버그]
+    watch(() => workflowStore.nodes.length, (len) => {
+      if (len > 0) console.log("🍊 Nodes Loaded:", len);
+    });
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && widgetPicker.visible) {
-        closeWidgetPicker()
+    // ------------------------------------------------------------------
+    // [1] 노드 & 포트 계산 (타입 에러 완전 제거)
+    // ------------------------------------------------------------------
+    const flowNodes = computed(() => {
+      const nodes = workflowStore.nodes || []
+      const edges = workflowStore.edges || []
+
+      type Ports = { inputs: Set<string>; outputs: Set<string> }
+
+      const usedPorts: Record<string, Ports> = {}
+      const inputAngleMap: Record<string, Record<string, number>> = {}
+      const outputAngleMap: Record<string, Record<string, number>> = {}
+
+      // 1) 노드 중심 좌표 (각도 계산용)
+      const centerMap: Record<string, { x: number; y: number }> = {}
+      nodes.forEach((n) => {
+        centerMap[n.id] = {
+          x: n.position.x + NODE_DIAMETER / 2,
+          y: n.position.y + NODE_DIAMETER / 2,
+        }
+        usedPorts[n.id] = { inputs: new Set(), outputs: new Set() }
+        inputAngleMap[n.id] = {}
+        outputAngleMap[n.id] = {}
+      })
+
+      // 2) 엣지 정보를 포트 + 각도 score 로 변환
+      edges.forEach((edge) => {
+        const srcCenter = centerMap[edge.source]
+        const tgtCenter = centerMap[edge.target]
+        if (!srcCenter || !tgtCenter) return
+
+        const inCh =
+            edge.targetChannel && edge.targetChannel.trim() !== ''
+                ? edge.targetChannel
+                : 'Data'
+        const outCh =
+            edge.sourceChannel && edge.sourceChannel.trim() !== ''
+                ? edge.sourceChannel
+                : 'Data'
+
+        // ---- 타깃 노드(입력 포트) 처리 ----
+        const targetPorts = usedPorts[edge.target]
+        if (targetPorts) {
+          targetPorts.inputs.add(inCh)
+
+          const map =
+              inputAngleMap[edge.target] ??
+              (inputAngleMap[edge.target] = {})
+
+          const score = getAngleScore(tgtCenter, srcCenter, true) // ✅ 입력: isInput = true
+          const prev = map[inCh]
+          // 같은 채널로 여러 노드가 연결되면 "가장 위쪽(가장 작은 score)" 유지
+          if (prev === undefined || score < prev) {
+            map[inCh] = score
+          }
+        }
+
+        // ---- 소스 노드(출력 포트) 처리 ----
+        const sourcePorts = usedPorts[edge.source]
+        if (sourcePorts) {
+          sourcePorts.outputs.add(outCh)
+
+          const map =
+              outputAngleMap[edge.source] ??
+              (outputAngleMap[edge.source] = {})
+
+          const score = getAngleScore(srcCenter, tgtCenter, false) // ✅ 출력: isInput = false
+          const prev = map[outCh]
+          if (prev === undefined || score < prev) {
+            map[outCh] = score
+          }
+        }
+      })
+
+      // 3) 최종 VueFlow 노드로 변환
+      return nodes.map((n) => {
+        const def = getWidgetDef(n.widgetType)
+
+        const ports = usedPorts[n.id]
+        const inScores = inputAngleMap[n.id] || {}
+        const outScores = outputAngleMap[n.id] || {}
+
+        let inputNames: string[] = []
+        let outputNames: string[] = []
+
+        if (ports && (ports.inputs.size > 0 || ports.outputs.size > 0)) {
+          // (A) 엣지 기반 포트가 있는 경우 → 각도 score 로 정렬
+          inputNames = Array.from(ports.inputs)
+          outputNames = Array.from(ports.outputs)
+
+          // ✅ 입력 포트: 12시 기준 CCW, score 작은 순 = 화면에서 위쪽
+          inputNames.sort(
+              (a, b) =>
+                  (inScores[a] ?? Number.POSITIVE_INFINITY) -
+                  (inScores[b] ?? Number.POSITIVE_INFINITY),
+          )
+
+          // ✅ 출력 포트: 12시 기준 CW, score 작은 순 = 화면에서 위쪽
+          outputNames.sort(
+              (a, b) =>
+                  (outScores[a] ?? Number.POSITIVE_INFINITY) -
+                  (outScores[b] ?? Number.POSITIVE_INFINITY),
+          )
+        } else {
+          // (B) 엣지가 전혀 없는 노드는 widgetDefinitions 기반
+          const defInputs = (def.inputs || []) as any[]
+          const defOutputs = (def.outputs || []) as any[]
+
+          inputNames = defInputs.map((v) =>
+              typeof v === 'string' ? v : v.name,
+          )
+          outputNames = defOutputs.map((v) =>
+              typeof v === 'string' ? v : v.name,
+          )
+        }
+
+        // (C) 그래도 비어 있으면 hasInput / hasOutput 플래그 기준으로 기본 'Data'
+        if (inputNames.length === 0 && def.hasInput) inputNames.push('Data')
+        if (outputNames.length === 0 && def.hasOutput) outputNames.push('Data')
+
+        const inputsArray = inputNames.map((name) => ({ name }))
+        const outputsArray = outputNames.map((name) => ({ name }))
+
+        return {
+          id: n.id,
+          type: 'oj-node',
+          position: { x: n.position.x, y: n.position.y },
+          data: {
+            label: n.title || n.name,
+            widgetId: n.widgetType,
+            icon: def.icon,
+            inputs: inputsArray,
+            outputs: outputsArray,
+          },
+        }
+      })
+    })
+
+    // ------------------------------------------------------------------
+    // [2] 엣지 생성 (ID 충돌 방지: e- 접두어)
+    // ------------------------------------------------------------------
+    const flowEdges = computed(() => {
+      const nodes = workflowStore.nodes || []
+      const edges = workflowStore.edges || []
+
+      if (!edges || edges.length === 0) return []
+
+      // 1) 노드 중심 좌표 계산
+      const centerMap: Record<string, { x: number; y: number }> = {}
+      nodes.forEach((n) => {
+        centerMap[n.id] = {
+          x: n.position.x + NODE_DIAMETER / 2,
+          y: n.position.y + NODE_DIAMETER / 2,
+        }
+      })
+
+      // 2) 각 연결선에 대해 source/target 기준 각도 score 계산 후 정렬
+      const sorted = [...edges].sort((a, b) => {
+        const sa = centerMap[a.source]
+        const ta = centerMap[a.target]
+        const sb = centerMap[b.source]
+        const tb = centerMap[b.target]
+
+        if (!sa || !ta || !sb || !tb) return 0
+
+        // 출력 기준(소스 노드 입장) 각도 – CW 기준
+        const srcScoreA = getAngleScore(sa, ta, false)
+        const srcScoreB = getAngleScore(sb, tb, false)
+
+        // 입력 기준(타깃 노드 입장) 각도 – CCW 기준
+        const tgtScoreA = getAngleScore(ta, sa, true)
+        const tgtScoreB = getAngleScore(tb, sb, true)
+
+        // ① 먼저 source 노드별로 묶고
+        if (a.source !== b.source) return a.source.localeCompare(b.source)
+        // ② 같은 source 안에서는 source 각도(위쪽→아래쪽) 순으로 정렬
+        if (srcScoreA !== srcScoreB) return srcScoreA - srcScoreB
+        // ③ 그래도 같으면 target 노드 ID
+        if (a.target !== b.target) return a.target.localeCompare(b.target)
+        // ④ 마지막으로 target 각도
+        if (tgtScoreA !== tgtScoreB) return tgtScoreA - tgtScoreB
+        // ⑤ 완전 동점이면 id 로 안정적인 정렬
+        return Number(a.id ?? 0) - Number(b.id ?? 0)
+      })
+
+      // 3) 정렬된 순서대로 VueFlow 엣지 생성
+      return sorted.map((e) => {
+        const sHandle =
+            e.sourceChannel && e.sourceChannel.trim() !== ''
+                ? e.sourceChannel
+                : 'Data'
+        const tHandle =
+            e.targetChannel && e.targetChannel.trim() !== ''
+                ? e.targetChannel
+                : 'Data'
+
+        return {
+          id: `e-${e.id}`,
+          source: e.source,
+          target: e.target,
+          sourceHandle: sHandle,
+          targetHandle: tHandle,
+          type: 'default',
+          animated: false,
+          style: {
+            stroke: '#8EA0B2',        // 원호와 동일한 진한 회색
+            strokeWidth: 2,
+            strokeDasharray: '4 4',   // 점선
+          },
+        }
+      })
+    })
+
+    // ... (이하 드래그 핸들러 등은 기존과 동일) ...
+    function handleNodeDrag(event: NodeDragEvent) {
+      const target = workflowStore.nodes.find((n) => n.id === event.node.id)
+      if (target) {
+        target.position.x = event.node.position.x
+        target.position.y = event.node.position.y
       }
     }
-    const onGlobalMouseDown = (e: MouseEvent) => {
-      if (!widgetPicker.visible) return
-      const el = pickerRef.value
-      if (el && el.contains(e.target as Node)) {
-        // 팝업 내부 클릭이면 무시
-        return
+
+    const hasViewportFitted = ref(false)
+    const fitAllNodesWithViewport = async () => {
+      if (hasViewportFitted.value || flowNodes.value.length === 0) return
+      await nextTick()
+      const nodes = flowNodes.value
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+      nodes.forEach((n) => {
+        if (n.position.x < minX) minX = n.position.x
+        if (n.position.x > maxX) maxX = n.position.x
+        if (n.position.y < minY) minY = n.position.y
+        if (n.position.y > maxY) maxY = n.position.y
+      })
+      if (!isFinite(minX)) return
+      const viewW = dimensions.value?.width || 800
+      const viewH = dimensions.value?.height || 600
+      const rawW = maxX - minX + NODE_DIAMETER
+      const rawH = maxY - minY + NODE_DIAMETER
+      const zoom = Math.min(viewW / (rawW * 1.5), viewH / (rawH * 1.5), MAX_ZOOM)
+      const cx = minX + rawW / 2
+      const cy = minY + rawH / 2
+      await setViewport({
+        x: (viewW / 2) - (cx * Math.max(MIN_ZOOM, zoom)),
+        y: (viewH / 2) - (cy * Math.max(MIN_ZOOM, zoom)),
+        zoom: Math.max(MIN_ZOOM, zoom)
+      })
+      hasViewportFitted.value = true
+    }
+
+    const handlePaneReady = () => { fitAllNodesWithViewport() }
+
+    const connectingFrom = ref<any>(null)
+    const handleConnectStart = (params: any) => { connectingFrom.value = params }
+    const handleConnect = (params: any) => {
+      const newEdge = {
+            id: `e-${Date.now()}`,
+            source: params.source,
+            target: params.target,
+            sourceChannel: params.sourceHandle || 'Data',
+            targetChannel: params.targetHandle || 'Data',
+          }
+      ;(workflowStore.edges as any[]).push(newEdge)
+    }
+    const handleConnectEnd = (evt: any) => {
+      if (!connectingFrom.value) return
+      const mouse = evt?.event as MouseEvent
+      if (mouse) openWidgetPickerAt(mouse.clientX, mouse.clientY)
+      connectingFrom.value = null
+    }
+
+    const openWidgetPickerAt = (cx: number, cy: number) => {
+      const flowPos = project({ x: cx, y: cy })
+      widgetPicker.visible = true
+      widgetPicker.screenX = cx; widgetPicker.screenY = cy
+      widgetPicker.flowX = flowPos.x; widgetPicker.flowY = flowPos.y
+      searchText.value = ''
+      nextTick(() => searchInputRef.value?.focus())
+    }
+    const closeWidgetPicker = () => { widgetPicker.visible = false }
+    const handlePaneContextMenu = (e: MouseEvent) => { e.preventDefault(); openWidgetPickerAt(e.clientX, e.clientY) }
+    const handlePaneClick = () => { if (widgetPicker.visible) closeWidgetPicker() }
+
+    const createNodeFromWidget = (w: WidgetDefinition & { categoryColor?: string }) => {
+      const newNodeId = `node_${Date.now()}`
+      const newNode: any = {
+            id: newNodeId, widgetType: w.id, name: w.label, title: w.label,
+            position: { x: widgetPicker.flowX, y: widgetPicker.flowY }, params: {}
+          }
+      ;(workflowStore.nodes as any[]).push(newNode)
+      if (connectingFrom.value) {
+        const from = connectingFrom.value
+        const isSrc = from.handleType === 'source'
+        const def = getWidgetDef(w.id);
+        const defInputs = (def.inputs || []) as any[];
+        const defOutputs = (def.outputs || []) as any[];
+
+        const firstInput = (defInputs[0] && typeof defInputs[0] === 'object' ? defInputs[0].name : defInputs[0]) || 'Data';
+        const firstOutput = (defOutputs[0] && typeof defOutputs[0] === 'object' ? defOutputs[0].name : defOutputs[0]) || 'Data';
+
+        const targetPort = isSrc ? firstInput : (from.handleId);
+        const sourcePort = isSrc ? (from.handleId) : firstOutput;
+        const newEdge = {
+              id: `edge_${Date.now()}`,
+              source: isSrc ? from.nodeId : newNodeId,
+              target: isSrc ? newNodeId : from.nodeId,
+              sourceChannel: sourcePort,
+              targetChannel: targetPort
+            }
+        ;(workflowStore.edges as any[]).push(newEdge)
       }
       closeWidgetPicker()
     }
 
+    watch(() => flowNodes.value.length, async (newLen, oldLen) => {
+      if (oldLen === 0 && newLen > 0) {
+        hasViewportFitted.value = false
+        await fitAllNodesWithViewport()
+      }
+    })
+
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') closeWidgetPicker() }
+    const onGlobalMouseDown = (e: MouseEvent) => {
+      if (widgetPicker.visible && pickerRef.value && !pickerRef.value.contains(e.target as Node)) {
+        closeWidgetPicker()
+      }
+    }
     onMounted(() => {
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('mousedown', onGlobalMouseDown)
     })
-
     onBeforeUnmount(() => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('mousedown', onGlobalMouseDown)
     })
 
-    // 위젯 검색어 & 필터 목록
-    const searchText = ref('')
-
-    const allWidgets = computed<WidgetDefinition[]>(() =>
-        Object.values(WIDGET_DEFINITIONS),
-    )
-
-    const filteredWidgets = computed<WidgetDefinition[]>(() => {
-      const q = searchText.value.trim().toLowerCase()
-      if (!q) return allWidgets.value
-      return allWidgets.value.filter((w) =>
-          w.label.toLowerCase().includes(q) ||
-          w.id.toLowerCase().includes(q),
-      )
-    })
-
-    // -----------------------------
-    // 1) 커스텀 노드 타입
-    // -----------------------------
-    const nodeTypes: NodeTypesObject = {
-      'oj-node': markRaw(OjNode) as any,
-    }
-
-    // -----------------------------
-    // 2) 노드별 실제 입력 포트 이름 계산
-    // -----------------------------
-    const nodeRealInputs = computed<Record<string, string[]>>(() => {
-      const inputsMap: Record<string, string[]> = {}
-      const edgesByTarget: Record<string, WorkflowEdge[]> = {}
-      const storeEdges = workflowStore.edges as WorkflowEdge[]
-
-      storeEdges.forEach((edge) => {
-        ;(edgesByTarget[edge.target] ??= []).push(edge)
-      })
-
-      workflowStore.nodes.forEach((node) => {
-        const incomingEdges = edgesByTarget[node.id] || []
-
-        const sortedEdges = incomingEdges
-            .map((e) => {
-              const src = workflowStore.nodes.find((n) => n.id === e.source)
-              return { edge: e, y: src ? src.position.y : 0 }
-            })
-            .sort((a, b) => a.y - b.y)
-
-        const sortedInputs: string[] = []
-
-        sortedEdges.forEach(({ edge }) => {
-          const portName = edge.targetChannel ?? edge.label ?? 'Data'
-          if (!sortedInputs.includes(portName)) {
-            sortedInputs.push(portName)
-          }
-        })
-
-        const def = getWidgetDef(node.widgetType)
-        if (sortedInputs.length === 0 && def.hasInput) {
-          sortedInputs.push('Data')
-        }
-
-        inputsMap[node.id] = sortedInputs
-      })
-
-      return inputsMap
-    })
-
-    // -----------------------------
-    // 3) VueFlow 노드 생성
-    // -----------------------------
-    const flowNodes = computed(() =>
-        workflowStore.nodes.map((n) => {
-          const def = getWidgetDef(n.widgetType)
-
-          const defOutputs =
-              def.outputs && def.outputs.length > 0
-                  ? def.outputs
-                  : def.hasOutput
-                      ? ['Data']
-                      : []
-
-          return {
-            id: n.id,
-            type: 'oj-node',
-            position: { x: n.position.x, y: n.position.y },
-            data: {
-              label: n.title || n.name,
-              widgetId: n.widgetType,
-              icon: def.icon,
-              inputs: nodeRealInputs.value[n.id] || [],
-              outputs: defOutputs,
-            },
-          }
-        }),
-    )
-
-    // -----------------------------
-    // 4) VueFlow 엣지 생성 (각도 기반 핸들 매핑)
-    // -----------------------------
-    const flowEdges = computed<Edge[]>(() => {
-      const nodeIds = new Set(flowNodes.value.map((n) => n.id))
-      const storeEdges = workflowStore.edges as WorkflowEdge[]
-
-      const validEdges: WorkflowEdge[] = storeEdges.filter(
-          (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
-      )
-
-      const edgeMap: Record<string, Edge> = {}
-      const baseEdges: Edge[] = validEdges.map((e) => {
-        const edge: Edge = {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          label: e.label ?? undefined,
-        }
-        edgeMap[e.id] = edge
-        return edge
-      })
-
-      const findNodeById = (id: string) =>
-          workflowStore.nodes.find((n) => n.id === id)
-
-      // source 기준 정렬
-      const edgesBySource: Record<string, WorkflowEdge[]> = {}
-      validEdges.forEach((e) => {
-        ;(edgesBySource[e.source] ??= []).push(e)
-      })
-
-      for (const sourceId in edgesBySource) {
-        const list = edgesBySource[sourceId]!
-        const sourceNode = findNodeById(sourceId)
-        const sX = sourceNode?.position.x ?? 0
-        const sY = sourceNode?.position.y ?? 0
-
-        const edgesWithAngle = list
-            .map((e) => {
-              const targetNode = findNodeById(e.target)
-              const tX = targetNode?.position.x ?? 0
-              const tY = targetNode?.position.y ?? 0
-              const dx = tX - sX
-              const dy = tY - sY
-              const angle = (Math.atan2(dy, dx) * 180) / Math.PI
-              return { e, angle }
-            })
-            .sort((a, b) => a.angle - b.angle)
-
-        edgesWithAngle.forEach(({ e }, idx) => {
-          const be = edgeMap[e.id]
-          if (be) be.sourceHandle = `out-${idx}`
-        })
-      }
-
-      // target 기준 정렬
-      const edgesByTarget: Record<string, WorkflowEdge[]> = {}
-      validEdges.forEach((e) => {
-        ;(edgesByTarget[e.target] ??= []).push(e)
-      })
-
-      for (const targetId in edgesByTarget) {
-        const list = edgesByTarget[targetId]!
-        const targetNode = findNodeById(targetId)
-        const tX = targetNode?.position.x ?? 0
-        const tY = targetNode?.position.y ?? 0
-
-        const edgesWithAngle = list
-            .map((e) => {
-              const sourceNode = findNodeById(e.source)
-              const sX = sourceNode?.position.x ?? 0
-              const sY = sourceNode?.position.y ?? 0
-              const dx = tX - sX
-              const dy = tY - sY
-              const angle = (Math.atan2(dy, dx) * 180) / Math.PI
-              return { e, angle }
-            })
-            .sort((a, b) => a.angle - b.angle)
-
-        edgesWithAngle.forEach(({ e }, idx) => {
-          const be = edgeMap[e.id]
-          if (be) be.targetHandle = `in-${idx}`
-        })
-      }
-
-      baseEdges.forEach((e) => {
-        e.style = { stroke: '#bdc3c7', strokeWidth: 2 }
-      })
-
-      return baseEdges
-    })
-
-    // -----------------------------
-    // 5) 노드 드래그 → 스토어 반영
-    // -----------------------------
-    function handleNodeDrag(event: NodeDragEvent) {
-      const targetNode = workflowStore.nodes.find((n) => n.id === event.node.id)
-      if (targetNode) {
-        targetNode.position.x = event.node.position.x
-        targetNode.position.y = event.node.position.y
-      }
-    }
-
-    // -----------------------------
-    // 6) 뷰포트 계산
-    // -----------------------------
-    const VIEWPORT_PADDING_X = 0.15
-    const VIEWPORT_PADDING_Y = 0.1
-    const MIN_ZOOM = 0.05
-    const MAX_ZOOM = 1.5
-
-    const fitAllNodesWithViewport = async () => {
-      if (hasViewportFitted.value) return
-
-      const nodes = flowNodes.value
-      if (!nodes.length) return
-
-      await nextTick()
-
-      const dim = dimensions.value
-      const viewW = dim?.width ?? 0
-      const viewH = dim?.height ?? 0
-      if (viewW <= 0 || viewH <= 0) return
-
-      let minX = Infinity
-      let maxX = -Infinity
-      let minY = Infinity
-      let maxY = -Infinity
-
-      nodes.forEach((n) => {
-        const x = n.position.x
-        const y = n.position.y
-        if (x < minX) minX = x
-        if (x > maxX) maxX = x
-        if (y < minY) minY = y
-        if (y > maxY) maxY = y
-      })
-
-      if (
-          !isFinite(minX) ||
-          !isFinite(maxX) ||
-          !isFinite(minY) ||
-          !isFinite(maxY)
-      ) return
-
-      const rawWidth = maxX - minX + NODE_DIAMETER
-      const rawHeight = maxY - minY + NODE_DIAMETER
-
-      const marginX = rawWidth * VIEWPORT_PADDING_X
-      const marginY = rawHeight * VIEWPORT_PADDING_Y
-
-      const graphWidth = rawWidth + marginX * 2
-      const graphHeight = rawHeight + marginY * 2
-
-      const zoomX = viewW / graphWidth
-      const zoomY = viewH / graphHeight
-      let zoom = Math.min(zoomX, zoomY)
-      zoom = Math.min(Math.max(zoom, MIN_ZOOM), MAX_ZOOM)
-
-      const graphCenterX = minX + rawWidth / 2
-      const graphCenterY = minY + rawHeight / 2
-
-      const screenCenterX = viewW / 2
-      const screenCenterY = viewH / 2
-
-      const x = screenCenterX - graphCenterX * zoom
-      const y = screenCenterY - graphCenterY * zoom
-
-      await setViewport({ x, y, zoom })
-
-      hasViewportFitted.value = true
-    }
-
-    const handlePaneReady = async () => {
-      await fitAllNodesWithViewport()
-    }
-
-    // -----------------------------
-    // 7) 연결 이벤트 (arc/handle 공통)
-    // -----------------------------
-    const handleConnectStart = (connectionEvent: any) => {
-      const { nodeId, handleId, handleType } = connectionEvent
-      if (!nodeId || !handleType) {
-        connectingFrom.value = null
-        return
-      }
-
-      connectingFrom.value = {
-        nodeId,
-        handleId,
-        handleType,
-      }
-      hasConnected.value = false
-    }
-
-    const handleConnect = (connection: any) => {
-      hasConnected.value = true
-      // 실제 edge 추가는 store 기반으로 하고 있으니 여기서는 플래그만
-    }
-
-    const openWidgetPickerAt = (clientX: number, clientY: number) => {
-      const flowPos = project({ x: clientX, y: clientY })
-
-      widgetPicker.visible = true
-      widgetPicker.screenX = clientX
-      widgetPicker.screenY = clientY
-      widgetPicker.flowX = flowPos.x
-      widgetPicker.flowY = flowPos.y
-    }
-
-    // connect-end: 마우스를 떼는 순간 (성공/실패 모두)
-    const handleConnectEnd = (connectionEvent: any) => {
-      // 연결이 실제로 만들어졌으면(=다른 노드에 연결됨) 팝업 X
-      if (!connectingFrom.value || hasConnected.value) {
-        connectingFrom.value = null
-        hasConnected.value = false
-        return
-      }
-
-      // VueFlow 가 넘겨주는 객체에서 실제 MouseEvent 추출
-      const mouse: MouseEvent | undefined =
-          connectionEvent?.event ?? connectionEvent
-
-      if (!mouse) {
-        connectingFrom.value = null
-        hasConnected.value = false
-        return
-      }
-
-      // 빈 공간에 드롭한 경우 → 팝업 위치 잡기
-      const { clientX, clientY } = mouse
-      const flowPos = project({ x: clientX, y: clientY })
-
-      widgetPicker.visible = true
-      widgetPicker.screenX = clientX
-      widgetPicker.screenY = clientY
-      widgetPicker.flowX = flowPos.x
-      widgetPicker.flowY = flowPos.y
-
-      connectingFrom.value = null
-      hasConnected.value = false
-    }
-
-    const handlePaneContextMenu = (event: MouseEvent) => {
-      event.preventDefault()
-      // 순수 오른쪽 클릭이므로 기존 연결 상태는 초기화
-      connectingFrom.value = null
-      hasConnected.value = false
-      openWidgetPickerAt(event.clientX, event.clientY)
-    }
-
-    const handlePaneClick = () => {
-      if (widgetPicker.visible) {
-        closeWidgetPicker()
-      }
-    }
-
-    // -----------------------------
-    // 8) 위젯 선택 → 새 노드 & 엣지 생성
-    // -----------------------------
-    const createNodeFromWidget = (w: WidgetDefinition) => {
-      const newNodeId = `node_${Date.now()}`
-
-      const newNode: any = {
-            id: newNodeId,
-            widgetType: w.id,
-            name: w.label,
-            title: w.label,
-            position: { x: widgetPicker.flowX, y: widgetPicker.flowY },
-          }
-
-      ;(workflowStore.nodes as any[]).push(newNode)
-
-      // 연결 드래그에서 온 경우에만 edge 생성
-      if (connectingFrom.value) {
-        const from = connectingFrom.value
-        const newEdge: any = {
-              id: `edge_${Date.now()}`,
-              source: from.handleType === 'source' ? from.nodeId : newNodeId,
-              target: from.handleType === 'source' ? newNodeId : from.nodeId,
-            }
-        ;(workflowStore.edges as any[]).push(newEdge)
-      }
-
-      closeWidgetPicker()
-    }
-
-    // -----------------------------
-    // 9) 노드 수 변화 시 최초 1회 fit
-    // -----------------------------
-    watch(
-        () => flowNodes.value.length,
-        async (newLen, oldLen) => {
-          if (oldLen === 0 && newLen > 0) {
-            await fitAllNodesWithViewport()
-          }
-        },
-    )
-
     return {
-      flowNodes,
-      flowEdges,
-      nodeTypes,
-      handleNodeDrag,
-      handlePaneReady,
-      handleConnectStart,
-      handleConnect,
-      handleConnectEnd,
-      handlePaneContextMenu,
-      handlePaneClick,
-
-      widgetPicker,
-      pickerRef,
-      searchText,
-      filteredWidgets,
-      createNodeFromWidget,
+      flowNodes, flowEdges, nodeTypes,
+      handleNodeDrag, handlePaneReady, handleConnectStart, handleConnect, handleConnectEnd,
+      handlePaneContextMenu, handlePaneClick, widgetPicker, pickerRef, searchInputRef,
+      filteredWidgets, createNodeFromWidget, searchText
     }
-  },
+  }
 })
 </script>
 
-
 <style scoped>
-.oj-workflow-wrapper {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-}
-
-.oj-workflow-canvas {
-  width: 100%;
-  height: 100%;
-  background: #f8fafc;
-}
-
-/* 팝업 컨테이너 */
-.oj-widget-picker {
-  position: absolute;
-  min-width: 260px;
-  max-height: 380px;
-  border: 1px solid #c4c4c4;
-  background: #fdfdfd;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-  border-radius: 4px;
-  overflow: hidden;
-  z-index: 50;
-  font-size: 12px;
-  box-sizing: border-box;
-}
-
-/* 검색창 */
-.oj-widget-picker-search {
-  width: 100%;
-  border: none;
-  border-bottom: 1px solid #d0d0d0;
-  padding: 4px 8px;
-  font-size: 12px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-/* 리스트 */
-.oj-widget-picker-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 340px;
-  overflow-y: auto;
-}
-
-/* 항목 */
-.oj-widget-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.oj-widget-picker-item:hover {
-  background: #e6f0ff;
-}
-
-/* 아이콘 영역 (카테고리 색 배경을 줄 거면 여기서) */
-.oj-widget-picker-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.oj-widget-picker-icon img {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.oj-widget-picker-label {
-  flex: 1;
-}
+.oj-workflow-wrapper { flex: 1; display: flex; height: 100%; min-width: 0; }
+.oj-workflow-canvas { width: 100%; height: 100%; background: #f8fafc; }
+.oj-widget-picker { position: fixed; z-index: 1000; transform: translate(-50%, -50%); min-width: 260px; padding: 8px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 8px; }
+.oj-widget-picker-search { width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
+.oj-widget-picker-search:focus { border-color: #2196F3; }
+.oj-widget-picker-list { max-height: 200px; overflow-y: auto; list-style: none; padding: 0; margin: 0; }
+.oj-widget-picker-item { display: flex; align-items: center; gap: 8px; padding: 6px; cursor: pointer; border-radius: 4px; }
+.oj-widget-picker-item:hover { background: #f0f0f0; }
+.oj-widget-picker-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.oj-widget-picker-icon img { width: 100%; height: 100%; object-fit: contain; }
+.oj-widget-picker-label { font-size: 13px; color: #333; }
 </style>

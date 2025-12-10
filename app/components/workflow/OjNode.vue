@@ -1,523 +1,227 @@
 <template>
-  <div class="oj-node-root">
+  <div class="oj-node-wrapper" :class="{ selected: selected }">
+    <div class="oj-visual-container">
 
-    <div
-        class="oj-node-body"
-        :style="{ width: `${NODE_DIAMETER}px`, height: `${NODE_DIAMETER}px` }"
-    >
+      <svg class="oj-arcs-svg" viewBox="0 0 100 80">
+        <!-- 입력 원호 -->
+        <path
+            v-if="inputs.length > 0"
+            :d="inputArcPath"
+            class="oj-arc-path"
+        />
 
-      <div class="oj-canvas-layer">
-        <svg class="oj-svg-canvas" viewBox="0 0 200 200">
-          <path
-              v-if="hasInput"
-              :d="inputArcPath"
-              class="oj-arc-path"
-              :class="{ 'is-connected': inputConnected, 'is-dashed': !inputConnected }"
-              @mousedown.left="onArcMouseDown($event, 'input')"
-          />
+        <!-- 출력 원호 -->
+        <path
+            v-if="outputs.length > 0"
+            :d="outputArcPath"
+            class="oj-arc-path"
+        />
+      </svg>
 
-          <path
-              v-if="hasOutput"
-              :d="outputArcPath"
-              class="oj-arc-path"
-              :class="{ 'is-connected': outputConnected, 'is-dashed': !outputConnected }"
-              @mousedown.left="onArcMouseDown($event, 'output')"
-          />
-        </svg>
-      </div>
-
-      <div class="oj-handle-layer">
+      <div v-if="inputs.length > 0" class="handles-layer">
         <Handle
-            v-if="hasInput"
-            v-for="handle in inputHandles"
-            :key="handle.id"
-            :id="handle.id"
+            v-for="(input, idx) in inputs"
+            :key="`${id}-in-${idx}`"
             type="target"
             :position="Position.Left"
-            class="oj-node-handle"
-            :class="{ 'is-connected': inputConnected }"
-            :style="{
-            left: `calc(50% + ${handle.x}px)`,
-            top: `calc(50% + ${handle.y}px)`
-          }"
-            :title="handle.name"
-        />
+            :id="input.name || 'Data'"
+            class="oj-handle"
+            :style="getInputHandleStyle(idx, inputs.length)"
+        >
+          <span class="handle-tooltip left">{{ input.name }}</span>
+        </Handle>
+      </div>
+
+      <div class="oj-icon-circle" :style="{ borderColor: nodeColor }">
+        <div class="circle-bg" :style="{ backgroundColor: nodeColor }"></div>
+        <img v-if="data?.icon" :src="data.icon" class="node-icon" alt="" @error="onImageError" />
+        <span v-else class="fallback-text" :style="{ color: nodeColor }">{{ label[0] }}</span>
+      </div>
+
+      <div v-if="outputs.length > 0" class="handles-layer">
         <Handle
-            v-if="hasOutput"
-            v-for="handle in outputHandles"
-            :key="handle.id"
-            :id="handle.id"
+            v-for="(output, idx) in outputs"
+            :key="`${id}-out-${idx}`"
             type="source"
             :position="Position.Right"
-            class="oj-node-handle"
-            :class="{ 'is-connected': outputConnected }"
-            :style="{
-            left: `calc(50% + ${handle.x}px)`,
-            top: `calc(50% + ${handle.y}px)`
-          }"
-        />
+            :id="output.name || 'Data'"
+            class="oj-handle"
+            :style="getOutputHandleStyle(idx, outputs.length)"
+        >
+          <span class="handle-tooltip right">{{ output.name }}</span>
+        </Handle>
       </div>
-
-      <div class="oj-node-main" :style="circleStyle">
-        <div class="oj-node-inner">
-          <img v-if="iconSrc" :src="iconSrc" alt="" class="oj-node-icon" />
-        </div>
-      </div>
-
     </div>
-
-    <div class="oj-node-label">{{ data.label }}</div>
+    <div class="oj-node-label">{{ label }}</div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { CSSProperties } from 'vue'
-import {
-  Handle,
-  Position,
-  useVueFlow,
-  useHandle,
-} from '@vue-flow/core'
-import { getWidgetColors } from '@/utils/widgetStyle'
-import { getWidgetDef } from '@/utils/widgetDefinitions'
-import type { WidgetDefinition } from '@/utils/widgetDefinitions'
-import {
-  NODE_DIAMETER,
-  ARC_R,
-  ARC_ANGLE,
-  ARC_Y_OFFSET,
-  CENTER,
-  getAngleScore,
-  getNodeCenter,
-} from '@/utils/workflowGeometry'
+import { Handle, Position } from '@vue-flow/core'
+import { getWidgetDef, getWidgetColor } from '@/utils/widgetDefinitions'
 
-interface NodeData {
-  widgetId: string
-  label: string
-  inputs?: string[]
-  outputs?: string[]
-}
-
-interface WidgetColors {
-  bg: string
-  border: string
-}
-
-const props = defineProps<{ id: string; data: NodeData }>()
-
-// Vue Flow 상태
-const { edges, findNode } = useVueFlow()
-
-
-// 위젯 정의
-const widgetDef = computed<WidgetDefinition>(() => {
-  const def = getWidgetDef(props.data.widgetId) as WidgetDefinition | undefined
-  return (
-      def ?? {
-        id: props.data.widgetId,
-        label: props.data.label,
-        categoryId: 'data',
-        inputs: ['Data'],
-        outputs: ['Data'],
-        hasInput: true,
-        hasOutput: true,
-        icon: '/icons/widgets/default.svg',
-      }
-  )
+const props = defineProps({
+  id: { type: String, required: true },
+  data: { type: Object, required: false, default: () => ({}) },
+  selected: { type: Boolean, default: false },
 })
 
-// 포트 정의
-const inputPorts = computed(() => {
-  const dataInputs = props.data.inputs
-  if (dataInputs && dataInputs.length > 0) return dataInputs
-  return widgetDef.value.inputs ?? []
-})
+const widgetDef = computed(() => getWidgetDef(props.data?.widgetId || props.data?.label));
 
-const outputPorts = computed(() => {
-  const dataOutputs = props.data.outputs
-  if (dataOutputs && dataOutputs.length > 0) return dataOutputs
-  return widgetDef.value.outputs ?? []
-})
+// 데이터가 없으면 빈 배열 []
+const inputs = computed(() => props.data?.inputs || []);
+const outputs = computed(() => props.data?.outputs || []);
 
-const hasInput = computed(() => {
-  const definedInputs = inputPorts.value.length > 0
-  const hasIncomingEdges = edges.value?.some((e) => e.target === props.id) ?? false
-  return definedInputs || hasIncomingEdges
-})
+const label = computed(() => props.data?.label || widgetDef.value?.label || 'Node');
+const nodeColor = computed(() => getWidgetColor(props.data?.widgetId || props.data?.label));
 
-const hasOutput = computed(() => {
-  const definedOutputs = outputPorts.value.length > 0
-  const hasOutgoingEdges = edges.value?.some((e) => e.source === props.id) ?? false
-  return definedOutputs || hasOutgoingEdges
-})
+// === Geometry ===
+const VIEW_W = 100;
+const VIEW_H = 80;
+const CX = VIEW_W / 2;
+const CY = VIEW_H / 2;
+const RADIUS = 36; // 원호 반지름
+const ARC_ANGLE = 90;
 
-const iconSrc = computed(() => widgetDef.value.icon ?? '')
+const toRad = (deg: number) => deg * (Math.PI / 180);
 
-const inputConnected = computed(
-    () => edges.value?.some((e) => e.target === props.id) ?? false,
-)
-const outputConnected = computed(
-    () => edges.value?.some((e) => e.source === props.id) ?? false,
-)
-
-const colors = computed<WidgetColors>(() => {
-  const c = getWidgetColors(props.data.widgetId) as WidgetColors | undefined
-  return c ?? { bg: '#fff0e0', border: '#ffcd85' }
-})
-
-const circleStyle = computed<CSSProperties>(() => ({
-  background: colors.value.bg,
-  borderColor: colors.value.border,
-  width: '100%',
-  height: '100%',
-  boxSizing: 'border-box',
-}))
-
-// 원호에서 마우스를 누르면 -> 해당 side의 handle의 onMouseDown을 그대로 호출
-const onArcMouseDown = (e: MouseEvent, side: 'input' | 'output') => {
-  e.preventDefault()
-  e.stopPropagation()
-
-  if (side === 'output') {
-    const h = outputHandles.value[0]?.vue
-    h?.handlePointerDown(e)
-  } else {
-    const h = inputHandles.value[0]?.vue
-    h?.handlePointerDown(e)
+/**
+ * SVG 아크와 동일 좌표계(0도=위, 시계방향 증가)를 쓰도록
+ * polarToCartesian를 그대로 활용
+ */
+const polarToCartesian = (
+    centerX: number,
+    centerY: number,
+    radius: number,
+    angleInDegrees: number,
+) => {
+  const angleInRadians = toRad(angleInDegrees - 90)
+  return {
+    x: centerX + radius * Math.cos(angleInRadians),
+    y: centerY + radius * Math.sin(angleInRadians),
   }
 }
 
-// ===== 아치 및 핸들 위치 계산 =====
-function getArcGeometry(isOutput: boolean, count: number) {
-  const cx = 0
-  const cy = -ARC_Y_OFFSET
-  const halfAngle = ARC_ANGLE / 2
-  const toRad = (deg: number) => (deg * Math.PI) / 180
+/**
+ * 입력 핸들: 왼쪽 아크(중심각 270도) 기준
+ * - (개수+1) 등분의 내부 포인트에 배치
+ */
+const getInputHandleStyle = (index: number, total: number) => {
+  if (total <= 0) return {}
 
-  let startDeg: number
-  let endDeg: number
+  const span = ARC_ANGLE // 왼쪽 아크가 커버하는 각도 (예: 60도)
 
-  if (isOutput) {
-    // 오른쪽: 위(-42.5) -> 아래(+42.5)
-    startDeg = -halfAngle
-    endDeg = halfAngle
-  } else {
-    // 왼쪽: 아래 -> 위
-    startDeg = 180 - halfAngle
-    endDeg = 180 + halfAngle
-  }
-
-  const sx = cx + ARC_R * Math.cos(toRad(startDeg))
-  const sy = cy + ARC_R * Math.sin(toRad(startDeg))
-  const ex = cx + ARC_R * Math.cos(toRad(endDeg))
-  const ey = cy + ARC_R * Math.sin(toRad(endDeg))
-
-  const pathD = `M ${CENTER + sx} ${CENTER + sy}
-                 A ${ARC_R} ${ARC_R} 0 0 1 ${CENTER + ex} ${CENTER + ey}`
-
-  const points: { x: string; y: string }[] = []
-  const safeCount = count === 0 ? 1 : count
-  const step = ARC_ANGLE / (safeCount + 1)
-
-  for (let i = 0; i < safeCount; i++) {
-    let deg: number
-    if (isOutput) {
-      // 오른쪽: 위 → 아래 (CW 기준)
-      deg = -halfAngle + step * (i + 1)
-    } else {
-      // 왼쪽: 아래 → 위 (CCW 기준)
-      deg = 180 + halfAngle - step * (i + 1)
+  // 하나일 때는 정 중앙(왼쪽)으로
+  if (total === 1) {
+    const angleDeg = 180 // 정확히 왼쪽
+    const x = CX + RADIUS * Math.cos(toRad(angleDeg))
+    const y = CY + RADIUS * Math.sin(toRad(angleDeg))
+    return {
+      left: `${x}px`,
+      top: `${y}px`,
+      transform: 'translate(-50%, -50%)',
     }
-
-    const rad = toRad(deg)
-    const px = cx + ARC_R * Math.cos(rad)
-    const py = cy + ARC_R * Math.sin(rad)
-    points.push({ x: px.toFixed(2), y: py.toFixed(2) })
   }
 
-  return { pathD, points }
+  // ▶ (점 개수 + 1) 분할
+  // 왼쪽 아크: 위쪽 끝(210°) ~ 아래쪽 끝(150°)
+  const topAngle = 180 + span / 2  // 210° (왼쪽 위)
+  const step = span / (total + 1)  // (N+1) 등분
+  // index=0 이 제일 위쪽 내부 포인트가 되도록 위→아래 방향으로 배치
+  const angleDeg = topAngle - step * (index + 1)
+
+  const x = CX + RADIUS * Math.cos(toRad(angleDeg))
+  const y = CY + RADIUS * Math.sin(toRad(angleDeg))
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    transform: 'translate(-50%, -50%)',
+  }
 }
 
-// ===== 각도 기반 엣지 정렬(공통) =====
-// isInputSide=true  → 입력: y축 음 방향 기준 CCW
-// isInputSide=false → 출력: y축 음 방향 기준 CW
-function sortEdgesByAngle(isInputSide: boolean) {
-  if (!edges.value) return []
 
-  const myEdges = edges.value.filter((e) =>
-      isInputSide ? e.target === props.id : e.source === props.id,
-  )
-  if (myEdges.length === 0) return []
+/**
+ * 출력 핸들: 오른쪽 아크(중심각 90도) 기준
+ * - (개수+1) 등분의 내부 포인트에 배치
+ */
+const getOutputHandleStyle = (index: number, total: number) => {
+  if (total <= 0) return {}
 
-  const myNode = findNode(props.id)
-  const myCenter = getNodeCenter(myNode)
+  const span = ARC_ANGLE
 
-  const edgesWithScore = myEdges.map((e, idx) => {
-    const otherId = isInputSide ? e.source : e.target
-    const otherNode = findNode(otherId)
-    const otherCenter = getNodeCenter(otherNode)
+  if (total === 1) {
+    const angleDeg = 0 // 오른쪽 중앙
+    const x = CX + RADIUS * Math.cos(toRad(angleDeg))
+    const y = CY + RADIUS * Math.sin(toRad(angleDeg))
+    return {
+      left: `${x}px`,
+      top: `${y}px`,
+      transform: 'translate(-50%, -50%)',
+    }
+  }
 
-    const score = getAngleScore(myCenter, otherCenter, isInputSide)
-    return { edge: e, originalIdx: idx, score }
-  })
+  // 오른쪽 아크: 위쪽 끝(-span/2) ~ 아래쪽 끝(+span/2)
+  const topAngle = -span / 2       // 예: -30° (오른쪽 위)
+  const step = span / (total + 1)
+  const angleDeg = topAngle + step * (index + 1) // 위→아래
 
-  // 각도 점수 작은 순 → 위쪽 핸들
-  edgesWithScore.sort((a, b) => a.score - b.score)
-  return edgesWithScore
+  const x = CX + RADIUS * Math.cos(toRad(angleDeg))
+  const y = CY + RADIUS * Math.sin(toRad(angleDeg))
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    transform: 'translate(-50%, -50%)',
+  }
 }
 
-// ===== Input 데이터 =====
-const inputData = computed(() => {
-  const incomingEdges = edges.value?.filter((e) => e.target === props.id) ?? []
-  const edgeCount = incomingEdges.length
-  const portCount = inputPorts.value.length
 
-  const handleCount = edgeCount > 0 ? edgeCount : portCount
-  if (handleCount === 0) {
-    return {
-      pathD: '',
-      points: [] as { id: string; x: string; y: string; name: string }[],
-    }
-  }
+const describeArc = (x: number, y: number, radius: number, startAngle: number, endAngle: number) => {
+  const start = polarToCartesian(x, y, radius, endAngle);
+  const end = polarToCartesian(x, y, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  return ["M", start.x, start.y, "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y].join(" ");
+};
+const inputArcPath = computed(() => {
+  const start = 270 - (ARC_ANGLE / 2) - 5;
+  const end = 270 + (ARC_ANGLE / 2) + 5;
+  return describeArc(CX, CY, RADIUS, start, end);
+});
+const outputArcPath = computed(() => {
+  const start = 90 - (ARC_ANGLE / 2) - 5;
+  const end = 90 + (ARC_ANGLE / 2) + 5;
+  return describeArc(CX, CY, RADIUS, start, end);
+});
 
-  const { points, pathD } = getArcGeometry(false, handleCount)
-
-  // 엣지가 없으면 포트 정의 순서대로만 표시
-  if (edgeCount === 0) {
-    if (portCount > 0) {
-      const pts = inputPorts.value.map((name, i) => {
-        const p = points[i] ?? points[0] ?? { x: '0', y: '0' }
-        return { id: `in-${i}`, x: p.x, y: p.y, name }
-      })
-      return { pathD, points: pts }
-    }
-
-    const p0 = points[0] ?? { x: '0', y: '0' }
-    return {
-      pathD,
-      points: [{ id: 'in-0', x: p0.x, y: p0.y, name: 'Data' }],
-    }
-  }
-
-  // 엣지가 있는 경우: 각도 순으로 재배치
-  const sorted = sortEdgesByAngle(true)
-
-  const mappedPoints = sorted.map((info, i) => {
-    const p = points[i] ?? points[points.length - 1] ?? { x: '0', y: '0' }
-    const handleId =
-        (info.edge.targetHandle as string | undefined) ?? `in-${info.originalIdx}`
-    const name =
-        inputPorts.value[i] ??
-        inputPorts.value[0] ??
-        'Data'
-
-    return {
-      id: handleId,
-      x: p.x,
-      y: p.y,
-      name,
-    }
-  })
-
-  return { pathD, points: mappedPoints }
-})
-
-const inputArcPath = computed(() => inputData.value.pathD)
-const inputHandles = computed(() =>
-    inputData.value.points.map((p, idx) => ({
-      ...p,
-      vue: useHandle({
-        nodeId: props.id,
-        handleId: `in-${idx}`,
-        type: 'target',
-      })
-    }))
-)
-
-// ===== Output 데이터 =====
-const outputData = computed(() => {
-  const outgoingEdges = edges.value?.filter((e) => e.source === props.id) ?? []
-  const edgeCount = outgoingEdges.length
-
-  const handleCount = edgeCount > 0 ? edgeCount : 1
-  const { points, pathD } = getArcGeometry(true, handleCount)
-
-  // 엣지가 없으면 기본 1개 핸들
-  if (edgeCount === 0) {
-    const p0 = points[0] ?? { x: '0', y: '0' }
-    return {
-      pathD,
-      points: [{ id: 'out-0', x: p0.x, y: p0.y }],
-    }
-  }
-
-  const sorted = sortEdgesByAngle(false)
-
-  const mappedPoints = sorted.map((info, i) => {
-    const p = points[i] ?? points[points.length - 1] ?? { x: '0', y: '0' }
-    const handleId =
-        (info.edge.sourceHandle as string | undefined) ?? `out-${info.originalIdx}`
-    return {
-      id: handleId,
-      x: p.x,
-      y: p.y,
-    }
-  })
-
-  return { pathD, points: mappedPoints }
-})
-
-const outputArcPath = computed(() => outputData.value.pathD)
-const outputHandles = computed(() =>
-    outputData.value.points.map((p, idx) => ({
-      ...p,
-      vue: useHandle({
-        nodeId: props.id,
-        handleId: `out-${idx}`,
-        type: 'source',
-      })
-    }))
-)
+const onImageError = (e: Event) => {
+  const target = e.target as HTMLImageElement;
+  if(target) target.style.display = 'none';
+}
 </script>
 
 <style scoped>
-.oj-node-root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: max-content;
-}
-
-.oj-node-body {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.oj-node-main {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 2px solid #ccc;
-  background: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  box-sizing: border-box;
-}
-
-.oj-node-inner {
-  width: 70%;
-  height: 70%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-}
-
-.oj-node-icon {
-  width: 60%;
-  height: 60%;
-  object-fit: contain;
-  opacity: 0.85;
-}
-
-.oj-canvas-layer {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 200px;
-  height: 200px;
-  transform: translate(-50%, -50%);
-  pointer-events: auto;   /* ✅ 원호도 마우스 이벤트 대상 */
-  z-index: -1;            /* 일단 장식 레이어 그대로 유지 */
-}
-
-.oj-svg-canvas {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.oj-handle-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 20;
-  pointer-events: auto;   /* ✅ 핸들이 클릭/드래그 받는 레이어 */
-}
-
-/* 원호 */
+.oj-node-wrapper { position: relative; width: 100px; display: flex; flex-direction: column; align-items: center; }
+.oj-visual-container { position: relative; width: 100px; height: 80px; display: flex; justify-content: center; align-items: center; }
+.oj-arcs-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
+/* 입력/출력 원호는 모두 같은 색상 사용 */
 .oj-arc-path {
   fill: none;
-  stroke: #bdc3c7;
-  stroke-width: 4px;
+  stroke: #78909C;      /* 목표 시스템에 가까운 오렌지 계열 한 색 */
+  stroke-width: 3;
   stroke-linecap: round;
-  transition: all 0.3s ease;
-
-  cursor: crosshair;      /* 🔥핸들과 동일한 “큰 +” */
-  pointer-events: stroke;
+  stroke-opacity: 0.8;
 }
-
-.oj-arc-path.is-dashed {
-  stroke: #d0d0d0;       /* 옅은 회색 */
-  stroke-dasharray: 6 6; /* 점선 */
-  opacity: 0.5;          /* 옅게 표시 */
-}
-
-.oj-arc-path.is-connected {
-  stroke: #7f8c8d;
-  stroke-dasharray: none;
-  opacity: 1;
-}
-
-/* 핸들 */
-.oj-node-handle {
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-
-  /* transform 으로만 중심 정렬 */
-  transform: translate(-50%, -50%);
-
-  cursor: crosshair;
-  pointer-events: auto;
-
-  background: transparent;
-  border: 1px solid transparent;
-  transition: all 0.2s;
-}
-
-.oj-node-handle.is-connected {
-  background: #555;
-  border-color: #fff;
-}
-
-.oj-node-handle:hover {
-  background: #333;
-  border-color: #fff;
-  transform: translate(-50%, -50%) scale(1.4);
-}
-
-.oj-node-label {
-  margin-top: 4px;
-  font-size: 11px;
-  color: #333;
-  font-family: sans-serif;
-  text-align: center;
-  white-space: nowrap;
-  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.8);
-}
+.handles-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+.oj-handle { position: absolute; width: 9px; height: 9px; background: #546e7a; border: 1.5px solid white; border-radius: 50%; pointer-events: auto; z-index: 20; transition: transform 0.1s; }
+.oj-handle:hover { transform: translate(-50%, -50%) scale(1.4); }
+.handle-tooltip { display: none; position: absolute; top: -20px; background: rgba(0,0,0,0.8); color: white; font-size: 10px; padding: 2px 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
+.oj-handle:hover .handle-tooltip { display: block; }
+.handle-tooltip.left { right: 10px; }
+.handle-tooltip.right { left: 10px; }
+.oj-icon-circle { width: 48px; height: 48px; border-radius: 50%; border-width: 2.5px; border-style: solid; background: white; position: relative; display: flex; align-items: center; justify-content: center; z-index: 5; box-shadow: 0 3px 6px rgba(0,0,0,0.1); overflow: hidden; }
+.circle-bg { position: absolute; inset: 0; opacity: 0.15; }
+.node-icon { width: 28px; height: 28px; object-fit: contain; z-index: 2; }
+.fallback-text { font-weight: bold; font-size: 20px; z-index: 2; }
+.oj-node-label { margin-top: 2px; font-size: 11px; color: #333; text-align: center; font-weight: 600; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px white; }
+.selected .oj-icon-circle { box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.5); }
 </style>

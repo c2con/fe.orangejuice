@@ -1,4 +1,4 @@
-// app/components/LeftAccordion.ts
+// app/components/LeftAccordionTypes.ts
 import {
     ref,
     reactive,

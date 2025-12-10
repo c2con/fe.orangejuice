@@ -28,7 +28,6 @@ export const ICON_MAP: Record<string, string> = {
   "Normalize": "/icons/widgets/data/Normalize.svg",
   "Outliers": "/icons/widgets/data/Outliers.svg",
   "PaintData": "/icons/widgets/data/PaintData.svg",
-  "PCA": "/icons/widgets/data/PCA.svg",
   "Pivot": "/icons/widgets/data/Pivot.svg",
   "Preprocess": "/icons/widgets/data/Preprocess.svg",
   "PurgeDomain": "/icons/widgets/data/PurgeDomain.svg",
