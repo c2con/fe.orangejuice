@@ -19,12 +19,13 @@
       </svg>
 
       <div v-if="inputs.length > 0" class="handles-layer">
+        <!-- 입력 핸들 -->
         <Handle
             v-for="(input, idx) in inputs"
             :key="`${id}-in-${idx}`"
             type="target"
             :position="Position.Left"
-            :id="input.name || 'Data'"
+            :id="input.id || input.name || 'Data'"
             class="oj-handle"
             :style="getInputHandleStyle(idx, inputs.length)"
         >
@@ -39,12 +40,13 @@
       </div>
 
       <div v-if="outputs.length > 0" class="handles-layer">
+        <!-- 출력 핸들 -->
         <Handle
             v-for="(output, idx) in outputs"
             :key="`${id}-out-${idx}`"
             type="source"
             :position="Position.Right"
-            :id="output.name || 'Data'"
+            :id="output.id || output.name || 'Data'"
             class="oj-handle"
             :style="getOutputHandleStyle(idx, outputs.length)"
         >

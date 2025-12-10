@@ -105,125 +105,113 @@ export default defineNuxtComponent({
     // ------------------------------------------------------------------
     // [1] 노드 & 포트 계산 (타입 에러 완전 제거)
     // ------------------------------------------------------------------
+// [1] 노드 & 포트 계산: 엣지 기준, 각도 정렬
     const flowNodes = computed(() => {
       const nodes = workflowStore.nodes || []
       const edges = workflowStore.edges || []
 
-      type Ports = { inputs: Set<string>; outputs: Set<string> }
-
-      const usedPorts: Record<string, Ports> = {}
-      const inputAngleMap: Record<string, Record<string, number>> = {}
-      const outputAngleMap: Record<string, Record<string, number>> = {}
-
-      // 1) 노드 중심 좌표 (각도 계산용)
+      // 노드 중심 좌표 (각도계산용)
       const centerMap: Record<string, { x: number; y: number }> = {}
       nodes.forEach((n) => {
         centerMap[n.id] = {
           x: n.position.x + NODE_DIAMETER / 2,
           y: n.position.y + NODE_DIAMETER / 2,
         }
-        usedPorts[n.id] = { inputs: new Set(), outputs: new Set() }
-        inputAngleMap[n.id] = {}
-        outputAngleMap[n.id] = {}
       })
 
-      // 2) 엣지 정보를 포트 + 각도 score 로 변환
-      edges.forEach((edge) => {
-        const srcCenter = centerMap[edge.source]
-        const tgtCenter = centerMap[edge.target]
-        if (!srcCenter || !tgtCenter) return
-
-        const inCh =
-            edge.targetChannel && edge.targetChannel.trim() !== ''
-                ? edge.targetChannel
-                : 'Data'
-        const outCh =
-            edge.sourceChannel && edge.sourceChannel.trim() !== ''
-                ? edge.sourceChannel
-                : 'Data'
-
-        // ---- 타깃 노드(입력 포트) 처리 ----
-        const targetPorts = usedPorts[edge.target]
-        if (targetPorts) {
-          targetPorts.inputs.add(inCh)
-
-          const map =
-              inputAngleMap[edge.target] ??
-              (inputAngleMap[edge.target] = {})
-
-          const score = getAngleScore(tgtCenter, srcCenter, true) // ✅ 입력: isInput = true
-          const prev = map[inCh]
-          // 같은 채널로 여러 노드가 연결되면 "가장 위쪽(가장 작은 score)" 유지
-          if (prev === undefined || score < prev) {
-            map[inCh] = score
-          }
-        }
-
-        // ---- 소스 노드(출력 포트) 처리 ----
-        const sourcePorts = usedPorts[edge.source]
-        if (sourcePorts) {
-          sourcePorts.outputs.add(outCh)
-
-          const map =
-              outputAngleMap[edge.source] ??
-              (outputAngleMap[edge.source] = {})
-
-          const score = getAngleScore(srcCenter, tgtCenter, false) // ✅ 출력: isInput = false
-          const prev = map[outCh]
-          if (prev === undefined || score < prev) {
-            map[outCh] = score
-          }
-        }
-      })
-
-      // 3) 최종 VueFlow 노드로 변환
       return nodes.map((n) => {
         const def = getWidgetDef(n.widgetType)
+        const center = centerMap[n.id]
 
-        const ports = usedPorts[n.id]
-        const inScores = inputAngleMap[n.id] || {}
-        const outScores = outputAngleMap[n.id] || {}
+        // 이 노드로 들어오는 / 나가는 엣지
+        const incoming = edges.filter(
+            (e) => e.target === n.id && centerMap[e.source],
+        )
+        const outgoing = edges.filter(
+            (e) => e.source === n.id && centerMap[e.target],
+        )
 
-        let inputNames: string[] = []
-        let outputNames: string[] = []
+        const hasAnyEdge = incoming.length > 0 || outgoing.length > 0
 
-        if (ports && (ports.inputs.size > 0 || ports.outputs.size > 0)) {
-          // (A) 엣지 기반 포트가 있는 경우 → 각도 score 로 정렬
-          inputNames = Array.from(ports.inputs)
-          outputNames = Array.from(ports.outputs)
+        // 각도 기준 정렬 (입력: CCW, 출력: CW)
+        // center가 없으면 각도 정렬 자체를 스킵
+        if (center) {
+          incoming.sort((a, b) => {
+            const srcA = centerMap[a.source]
+            const srcB = centerMap[b.source]
 
-          // ✅ 입력 포트: 12시 기준 CCW, score 작은 순 = 화면에서 위쪽
-          inputNames.sort(
-              (a, b) =>
-                  (inScores[a] ?? Number.POSITIVE_INFINITY) -
-                  (inScores[b] ?? Number.POSITIVE_INFINITY),
-          )
+            // 소스 노드 중심이 계산 안 되면 비교 불가 → 0
+            if (!srcA || !srcB) return 0
 
-          // ✅ 출력 포트: 12시 기준 CW, score 작은 순 = 화면에서 위쪽
-          outputNames.sort(
-              (a, b) =>
-                  (outScores[a] ?? Number.POSITIVE_INFINITY) -
-                  (outScores[b] ?? Number.POSITIVE_INFINITY),
-          )
-        } else {
-          // (B) 엣지가 전혀 없는 노드는 widgetDefinitions 기반
-          const defInputs = (def.inputs || []) as any[]
-          const defOutputs = (def.outputs || []) as any[]
+            const sa = getAngleScore(center, srcA, true)   // 입력: isInput = true (CCW)
+            const sb = getAngleScore(center, srcB, true)
 
-          inputNames = defInputs.map((v) =>
-              typeof v === 'string' ? v : v.name,
-          )
-          outputNames = defOutputs.map((v) =>
-              typeof v === 'string' ? v : v.name,
-          )
+            return sa - sb
+          })
+        }
+        if (center) {
+          outgoing.sort((a, b) => {
+            const tgtA = centerMap[a.target]
+            const tgtB = centerMap[b.target]
+
+            if (!tgtA || !tgtB) return 0
+
+            const sa = getAngleScore(center, tgtA, false)  // 출력: isInput = false (CW)
+            const sb = getAngleScore(center, tgtB, false)
+
+            return sa - sb
+          })
         }
 
-        // (C) 그래도 비어 있으면 hasInput / hasOutput 플래그 기준으로 기본 'Data'
-        if (inputNames.length === 0 && def.hasInput) inputNames.push('Data')
-        if (outputNames.length === 0 && def.hasOutput) outputNames.push('Data')
+        // ---- 입력 포트 배열 ----
+        let inputsArray: { id: string; name: string }[]
+        if (incoming.length > 0) {
+          // ✅ 엣지 기반: 엣지 개수만큼 포트 생성
+          inputsArray = incoming.map((e, idx) => {
+            const ch =
+                e.targetChannel && e.targetChannel.trim() !== ''
+                    ? e.targetChannel
+                    : 'Data'
+            return {
+              id: `${ch}#${idx}`, // 고유 handle id
+              name: ch,
+            }
+          })
+        } else if (!hasAnyEdge) {
+          // ⚪ 엣지가 전혀 없는 노드만 widgetDefinitions 기반 포트 표시
+          const defInputs = (def.inputs || []) as any[]
+          inputsArray = defInputs.map((v, idx) => {
+            const ch = (typeof v === 'string' ? v : v.name) || 'Data'
+            return { id: ch, name: ch }
+          })
+        } else {
+          // 입력 엣지는 없고, 다른 방향 엣지는 있는 경우 → 입력 포트 없음
+          inputsArray = []
+        }
 
-        const inputsArray = inputNames.map((name) => ({ name }))
-        const outputsArray = outputNames.map((name) => ({ name }))
+        // ---- 출력 포트 배열 ----
+        let outputsArray: { id: string; name: string }[]
+        if (outgoing.length > 0) {
+          outputsArray = outgoing.map((e, idx) => {
+            const ch =
+                e.sourceChannel && e.sourceChannel.trim() !== ''
+                    ? e.sourceChannel
+                    : 'Data'
+            return {
+              id: `${ch}#${idx}`,
+              name: ch,
+            }
+          })
+        } else if (!hasAnyEdge) {
+          const defOutputs = (def.outputs || []) as any[]
+          outputsArray = defOutputs.map((v, idx) => {
+            const ch = (typeof v === 'string' ? v : v.name) || 'Data'
+            return { id: ch, name: ch }
+          })
+        } else {
+          // 출력 엣지는 없고, 다른 방향 엣지는 있는 경우 → 출력 포트 없음
+          outputsArray = []
+        }
 
         return {
           id: n.id,
@@ -243,13 +231,12 @@ export default defineNuxtComponent({
     // ------------------------------------------------------------------
     // [2] 엣지 생성 (ID 충돌 방지: e- 접두어)
     // ------------------------------------------------------------------
+// [2] 엣지 생성: 각도 순서대로 handle id 매핑
     const flowEdges = computed(() => {
       const nodes = workflowStore.nodes || []
       const edges = workflowStore.edges || []
+      if (!edges.length) return []
 
-      if (!edges || edges.length === 0) return []
-
-      // 1) 노드 중심 좌표 계산
       const centerMap: Record<string, { x: number; y: number }> = {}
       nodes.forEach((n) => {
         centerMap[n.id] = {
@@ -258,45 +245,79 @@ export default defineNuxtComponent({
         }
       })
 
-      // 2) 각 연결선에 대해 source/target 기준 각도 score 계산 후 정렬
-      const sorted = [...edges].sort((a, b) => {
-        const sa = centerMap[a.source]
-        const ta = centerMap[a.target]
-        const sb = centerMap[b.source]
-        const tb = centerMap[b.target]
+      const sourceHandleMap: Record<string, string> = {}
+      const targetHandleMap: Record<string, string> = {}
 
-        if (!sa || !ta || !sb || !tb) return 0
+      // 노드별로 in/out 엣지를 다시 정렬해서 동일 규칙으로 handle id 부여
+      nodes.forEach((n) => {
+        const center = centerMap[n.id]
+        if (!center) return
 
-        // 출력 기준(소스 노드 입장) 각도 – CW 기준
-        const srcScoreA = getAngleScore(sa, ta, false)
-        const srcScoreB = getAngleScore(sb, tb, false)
+        const outEdges = edges.filter(
+            (e) => e.source === n.id && centerMap[e.target],
+        )
+        outEdges.sort((a, b) => {
+          // center 가 없으면 비교 자체를 하지 않는다
+          if (!center) return 0
 
-        // 입력 기준(타깃 노드 입장) 각도 – CCW 기준
-        const tgtScoreA = getAngleScore(ta, sa, true)
-        const tgtScoreB = getAngleScore(tb, sb, true)
+          const tgtA = centerMap[a.target]
+          const tgtB = centerMap[b.target]
 
-        // ① 먼저 source 노드별로 묶고
-        if (a.source !== b.source) return a.source.localeCompare(b.source)
-        // ② 같은 source 안에서는 source 각도(위쪽→아래쪽) 순으로 정렬
-        if (srcScoreA !== srcScoreB) return srcScoreA - srcScoreB
-        // ③ 그래도 같으면 target 노드 ID
-        if (a.target !== b.target) return a.target.localeCompare(b.target)
-        // ④ 마지막으로 target 각도
-        if (tgtScoreA !== tgtScoreB) return tgtScoreA - tgtScoreB
-        // ⑤ 완전 동점이면 id 로 안정적인 정렬
-        return Number(a.id ?? 0) - Number(b.id ?? 0)
+          // 혹시라도 대상 노드 중심이 없으면 비교 불가 → 0
+          if (!tgtA || !tgtB) return 0
+
+          const sa = getAngleScore(center, tgtA, false)  // ▶ 여기서 타입 확정
+          const sb = getAngleScore(center, tgtB, false)
+
+          return sa - sb
+        })
+        outEdges.forEach((e, idx) => {
+          const ch =
+              e.sourceChannel && e.sourceChannel.trim() !== ''
+                  ? e.sourceChannel
+                  : 'Data'
+          sourceHandleMap[e.id] = `${ch}#${idx}`
+        })
+
+        const inEdges = edges.filter(
+            (e) => e.target === n.id && centerMap[e.source],
+        )
+        inEdges.sort((a, b) => {
+          // 현재 노드 중심도 undefined 가능성이 있다고 TS는 봄
+          if (!center) return 0
+
+          const srcA = centerMap[a.source]
+          const srcB = centerMap[b.source]
+
+          // source 중심이 없으면 비교 불가 → 0
+          if (!srcA || !srcB) return 0
+
+          const sa = getAngleScore(center, srcA, true)   // 입력: CCW
+          const sb = getAngleScore(center, srcB, true)
+
+          return sa - sb
+        })
+        inEdges.forEach((e, idx) => {
+          const ch =
+              e.targetChannel && e.targetChannel.trim() !== ''
+                  ? e.targetChannel
+                  : 'Data'
+          targetHandleMap[e.id] = `${ch}#${idx}`
+        })
       })
 
-      // 3) 정렬된 순서대로 VueFlow 엣지 생성
-      return sorted.map((e) => {
-        const sHandle =
+      return edges.map((e) => {
+        const baseSource =
             e.sourceChannel && e.sourceChannel.trim() !== ''
                 ? e.sourceChannel
                 : 'Data'
-        const tHandle =
+        const baseTarget =
             e.targetChannel && e.targetChannel.trim() !== ''
                 ? e.targetChannel
                 : 'Data'
+
+        const sHandle = sourceHandleMap[e.id] ?? baseSource
+        const tHandle = targetHandleMap[e.id] ?? baseTarget
 
         return {
           id: `e-${e.id}`,
@@ -307,9 +328,9 @@ export default defineNuxtComponent({
           type: 'default',
           animated: false,
           style: {
-            stroke: '#8EA0B2',        // 원호와 동일한 진한 회색
+            stroke: '#8EA0B2',
             strokeWidth: 2,
-            strokeDasharray: '4 4',   // 점선
+            strokeDasharray: '4 4',
           },
         }
       })
