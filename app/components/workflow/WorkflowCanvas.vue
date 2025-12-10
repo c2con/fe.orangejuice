@@ -416,9 +416,9 @@ export default defineNuxtComponent({
     const handlePaneContextMenu = (e: MouseEvent) => { e.preventDefault(); openWidgetPickerAt(e.clientX, e.clientY) }
     const handlePaneClick = (e: MouseEvent) => {
       // 왼쪽 버튼 클릭일 때만 동작 (원하면 제거해도 됨)
-      if (e.button !== 0) return
-
-      openWidgetPickerAt(e.clientX, e.clientY)
+      if (widgetPicker.visible) {
+        widgetPicker.visible = false
+      }
     }
 
     const createNodeFromWidget = (w: WidgetDefinition & { categoryColor?: string }) => {
