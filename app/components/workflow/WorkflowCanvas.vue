@@ -428,24 +428,73 @@ export default defineNuxtComponent({
     // =========================================================
     const connectingFrom = ref<any>(null)
 
+    const hasSameConnection = (
+        sourceId: string,
+        targetId: string,
+        sourceChannel?: string | null,
+        targetChannel?: string | null,
+    ) => {
+      const edges = (workflowStore.edges || []) as any[]
+
+      const sCh = (sourceChannel && String(sourceChannel).trim() !== '')
+          ? String(sourceChannel)
+          : 'Data'
+      const tCh = (targetChannel && String(targetChannel).trim() !== '')
+          ? String(targetChannel)
+          : 'Data'
+
+      // ✅ “같은 노드끼리” 중복 연결 금지 (채널 무시)
+      const alreadyByNodes = edges.some(
+          (e) => e.source === sourceId && e.target === targetId,
+      )
+
+      // (선택) 더 엄격하게: 같은 채널까지 같으면 중복 금지
+      const alreadyByChannels = edges.some(
+          (e) =>
+              e.source === sourceId &&
+              e.target === targetId &&
+              (String(e.sourceChannel || 'Data') === sCh) &&
+              (String(e.targetChannel || 'Data') === tCh),
+      )
+
+      // 요구사항이 “같은 노드끼리 이미 연결” 이므로 노드 기준으로 막음
+      // 필요하면 alreadyByChannels 로 바꾸면 됨
+      return alreadyByNodes || alreadyByChannels
+    }
+
+
     const handleConnectStart = (params: any) => {
       connectingFrom.value = params
     }
 
     const handleConnect = (params: any) => {
+      const sId = String(params.source || '')
+      const tId = String(params.target || '')
+      if (!sId || !tId) return
+
+      const sCh = stripHandleIndex(params.sourceHandle) ?? 'Data'
+      const tCh = stripHandleIndex(params.targetHandle) ?? 'Data'
+
+      // ✅ 같은 노드 pair 중복 연결 방지
+      if (hasSameConnection(sId, tId, sCh, tCh)) {
+        // 필요하면 토스트/알림 추가 가능 (지금은 조용히 무시)
+        return
+      }
+
       const newEdge: StoreEdge = {
             id: `edge_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-            source: params.source,
-            target: params.target,
-            sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
-            targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
+            source: sId,
+            target: tId,
+            sourceChannel: sCh,
+            targetChannel: tCh,
           }
 
       ;(workflowStore.edges as unknown as StoreEdge[]).push(newEdge)
 
-      void ensureNodeInternals(params.source)
-      void ensureNodeInternals(params.target)
+      void ensureNodeInternals(sId)
+      void ensureNodeInternals(tId)
     }
+
 
     const handleConnectEnd = (evt: any) => {
       const mouse = evt?.event as MouseEvent | undefined
