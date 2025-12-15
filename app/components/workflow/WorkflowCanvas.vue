@@ -269,11 +269,21 @@ export default defineNuxtComponent({
         const def = getWidgetDef(n.widgetType)
         const center = centerMap[n.id]
 
+        // ✅ 위젯 정의서 슬롯 (아크 표시 + ghost handle 생성용)
+        const defInputs = ((def?.inputs || []) as any[]) ?? []
+        const defOutputs = ((def?.outputs || []) as any[]) ?? []
+
+        const slotInputs = defInputs
+            .map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
+            .filter(Boolean)
+
+        const slotOutputs = defOutputs
+            .map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
+            .filter(Boolean)
+
         // 들어오는/나가는 엣지
         const incoming = edges.filter((e) => e.target === n.id && centerMap[e.source])
         const outgoing = edges.filter((e) => e.source === n.id && centerMap[e.target])
-
-        const hasAnyEdge = incoming.length > 0 || outgoing.length > 0
 
         // 입력 CCW, 출력 CW 정렬
         if (center) {
@@ -295,42 +305,28 @@ export default defineNuxtComponent({
           })
         }
 
-        // 입력 포트
-        let inputsArray: { id: string; name: string }[]
-        if (incoming.length > 0) {
-          inputsArray = incoming.map((e, idx) => {
-            const ch =
-                e.targetChannel && String(e.targetChannel).trim() !== '' ? e.targetChannel : 'Data'
-            return { id: `${ch}#${idx}`, name: ch }
-          })
-        } else if (!hasAnyEdge) {
-          // 엣지가 전혀 없을 때만 widgetDefinitions 기반 표시
-          const defInputs = ((def?.inputs || []) as any[]) ?? []
-          inputsArray = defInputs.map((v) => {
-            const ch = (typeof v === 'string' ? v : v.name) || 'Data'
-            return { id: ch, name: ch }
-          })
-        } else {
-          inputsArray = []
-        }
+        // ✅ "진짜 핸들(점)"은 edges 기반으로만 생성
+        const inputsArray: { id: string; name: string }[] =
+            incoming.length > 0
+                ? incoming.map((e, idx) => {
+                  const ch =
+                      e.targetChannel && String(e.targetChannel).trim() !== ''
+                          ? e.targetChannel
+                          : 'Data'
+                  return { id: `${ch}#${idx}`, name: ch }
+                })
+                : []
 
-        // 출력 포트
-        let outputsArray: { id: string; name: string }[]
-        if (outgoing.length > 0) {
-          outputsArray = outgoing.map((e, idx) => {
-            const ch =
-                e.sourceChannel && String(e.sourceChannel).trim() !== '' ? e.sourceChannel : 'Data'
-            return { id: `${ch}#${idx}`, name: ch }
-          })
-        } else if (!hasAnyEdge) {
-          const defOutputs = ((def?.outputs || []) as any[]) ?? []
-          outputsArray = defOutputs.map((v) => {
-            const ch = (typeof v === 'string' ? v : v.name) || 'Data'
-            return { id: ch, name: ch }
-          })
-        } else {
-          outputsArray = []
-        }
+        const outputsArray: { id: string; name: string }[] =
+            outgoing.length > 0
+                ? outgoing.map((e, idx) => {
+                  const ch =
+                      e.sourceChannel && String(e.sourceChannel).trim() !== ''
+                          ? e.sourceChannel
+                          : 'Data'
+                  return { id: `${ch}#${idx}`, name: ch }
+                })
+                : []
 
         return {
           id: n.id,
@@ -340,6 +336,16 @@ export default defineNuxtComponent({
             label: n.title || n.name,
             widgetId: n.widgetType,
             icon: def?.icon,
+
+            // ✅ 아크 표시용
+            hasInputSlot: slotInputs.length > 0,
+            hasOutputSlot: slotOutputs.length > 0,
+
+            // ✅ ghost handle 생성용 (연결 없어도 handle은 존재해야 아크→아크 연결 가능)
+            slotInputs,
+            slotOutputs,
+
+            // ✅ 연결된 경우에만 보이는 “진짜 핸들”
             inputs: inputsArray,
             outputs: outputsArray,
           },
@@ -528,7 +534,6 @@ export default defineNuxtComponent({
     // + 연결 중이면 자동 엣지 생성
     // =========================================================
     const createNodeFromWidget = async (w: WidgetDefinition & { categoryColor?: string }) => {
-      // ✅ 노드는 anchorFlow 위치에 생성 (표시 위치 screenX/Y와 무관)
       const newNodeId = await createNodeAtFlowPos(w.id, {
         x: widgetPicker.anchorFlowX,
         y: widgetPicker.anchorFlowY,
@@ -539,7 +544,6 @@ export default defineNuxtComponent({
         return
       }
 
-      // 연결 드래그 중이면 자동 엣지 추가
       if (connectingFrom.value) {
         const from = connectingFrom.value
         const isSrc = from.handleType === 'source'
@@ -600,15 +604,12 @@ export default defineNuxtComponent({
     onMounted(() => {
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('mousedown', onGlobalMouseDown)
-
-      // 팔레트 클릭 중앙 생성
       window.addEventListener('oj:add-widget', onAddWidgetEvent as any)
     })
 
     onBeforeUnmount(() => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('mousedown', onGlobalMouseDown)
-
       window.removeEventListener('oj:add-widget', onAddWidgetEvent as any)
     })
 
