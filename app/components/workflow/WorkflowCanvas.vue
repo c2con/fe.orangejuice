@@ -1,7 +1,9 @@
 <template>
   <div
-      class="oj-workflow-wrapper"
       ref="wrapperRef"
+      class="oj-workflow-wrapper"
+      tabindex="0"
+      @keydown="onKeyDown"
       @dragover.prevent
       @drop="handleDrop"
   >
@@ -11,7 +13,8 @@
           :nodes="flowNodes"
           :edges="flowEdges"
           :node-types="nodeTypes"
-          :default-edge-options="{ type: 'default', animated: false }"
+          :elements-selectable="true"
+          :edges-updatable="false"
           @pane-ready="handlePaneReady"
           @node-drag="handleNodeDrag"
           @connect-start="handleConnectStart"
@@ -27,20 +30,22 @@
         />
       </VueFlow>
 
+      <!-- Widget Picker -->
       <div
           v-if="widgetPicker.visible"
+          ref="pickerRef"
           class="oj-widget-picker"
           :style="{ left: widgetPicker.screenX + 'px', top: widgetPicker.screenY + 'px' }"
-          ref="pickerRef"
           @mousedown.stop
           @contextmenu.prevent
       >
         <input
+            ref="searchInputRef"
             v-model="searchText"
             class="oj-widget-picker-search"
             placeholder="Search..."
-            ref="searchInputRef"
         />
+
         <ul class="oj-widget-picker-list">
           <li
               v-for="w in filteredWidgets"
@@ -49,15 +54,12 @@
               @click="createNodeFromWidget(w)"
           >
             <span
-                class="oj-widget-picker-icon"
+                class="oj-widget-picker-dot"
                 :style="{ backgroundColor: w.categoryColor }"
-            >
-              <img
-                  :src="w.icon"
-                  alt=""
-              />
+            />
+            <span class="oj-widget-picker-label">
+              {{ w.label }}
             </span>
-            <span class="oj-widget-picker-label">{{ w.label }}</span>
           </li>
         </ul>
       </div>
@@ -70,112 +72,199 @@ import { defineNuxtComponent } from '#app'
 import {
   computed,
   markRaw,
-  watch,
   nextTick,
-  ref,
-  reactive,
-  onMounted,
   onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
 } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import type { NodeDragEvent, NodeTypesObject } from '@vue-flow/core'
+import type {
+  Edge as FlowEdge,
+  Node as FlowNode,
+  NodeDragEvent,
+  NodeTypesObject,
+} from '@vue-flow/core'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
-import { useWorkflowStore } from '@/stores/workflow'
 import OjNode from '@/components/workflow/OjNode.vue'
+import { useWorkflowStore } from '@/stores/workflow'
 
-import { getWidgetDef, WIDGET_DEFINITIONS, getCategoryColor } from '@/utils/widgetDefinitions'
+import {
+  getWidgetDef,
+  WIDGET_DEFINITIONS,
+  getCategoryColor,
+} from '@/utils/widgetDefinitions'
 import type { WidgetDefinition } from '@/utils/widgetDefinitions'
 
-import { NODE_DIAMETER, MIN_ZOOM, MAX_ZOOM, getAngleScore } from '@/utils/workflowGeometry'
+import {
+  NODE_DIAMETER,
+  MIN_ZOOM,
+  MAX_ZOOM,
+  getAngleScore,
+} from '@/utils/workflowGeometry'
+
+type StoreNode = {
+  id: string
+  widgetType: string
+  name: string
+  title: string
+  label: string
+  position: { x: number; y: number }
+  params: Record<string, any>
+}
+
+type StoreEdge = {
+  id: string
+  source: string
+  target: string
+  sourceChannel?: string | null
+  targetChannel?: string | null
+}
+
+type PickerWidget = WidgetDefinition & { categoryColor: string }
 
 export default defineNuxtComponent({
   components: { VueFlow, Background },
   setup() {
     const workflowStore = useWorkflowStore()
-    const { project, setViewport, dimensions, updateNodeInternals } = useVueFlow()
+
+    // useVueFlow() 타입 변동(버전차) 대비: any로 받고 안전 래퍼 사용
+    const vf: any = useVueFlow()
+
+    const project = vf.project as (p: { x: number; y: number }) => { x: number; y: number }
+    const setViewport = vf.setViewport as (v: { x: number; y: number; zoom: number }) => Promise<void> | void
+    const dimensions = vf.dimensions as { value?: { width: number; height: number } }
+    const updateNodeInternals = vf.updateNodeInternals as (ids: string[]) => void
+
+    const getSelectedEdgesRaw = vf.getSelectedEdges
+    const removeEdgesRaw = vf.removeEdges
 
     // =========================================================
-    // 좌표 변환 (핵심): client → canvas-local → project
+    // DOM refs & 좌표 변환
     // =========================================================
     const wrapperRef = ref<HTMLElement | null>(null)
 
-    const getCanvasRect = () => {
+    const getCanvasRect = (): DOMRect | null => {
       const wrap = wrapperRef.value
       const el = wrap?.querySelector('.oj-workflow-canvas') as HTMLElement | null
       return el?.getBoundingClientRect() ?? null
     }
 
-    // ✅ clientX/Y를 그대로 project에 넣으면 레이아웃 오프셋 때문에 항상 어긋남
     const toFlowPosFromClient = (clientX: number, clientY: number) => {
       const rect = getCanvasRect()
-      if (!rect) {
-        return project({ x: clientX, y: clientY })
-      }
+      if (!rect) return project({ x: clientX, y: clientY })
       return project({
         x: clientX - rect.left,
         y: clientY - rect.top,
       })
     }
 
-    // store에는 channel만 저장 (Data#0 금지)
-    const stripHandleIndex = (h?: string) => (h ? h.split('#')[0] : undefined)
+    const stripHandleIndex = (h?: string | null) => (h ? h.split('#')[0] : undefined)
 
     const ensureNodeInternals = async (nodeId: string) => {
       await nextTick()
-      requestAnimationFrame(() => {
-        updateNodeInternals([nodeId])
-      })
+      requestAnimationFrame(() => updateNodeInternals([nodeId]))
     }
 
     // =========================================================
-    // 노드 추가(클릭=중앙 / DnD=드롭 위치) - 기존 기능 영향 최소
+    // getAngleScore undefined 방어 (스크린샷 에러의 본체)
     // =========================================================
-    const createNodeAtFlowPos = async (widgetId: string, flowPos: { x: number; y: number }) => {
+    const safeScore = (
+        center: { x: number; y: number },
+        other: { x: number; y: number } | undefined,
+        isInput: boolean,
+    ) => {
+      // other가 undefined면 center로 대체 → score=0 계열로 정렬 안정화
+      const p = other ?? center
+      return getAngleScore(center, p, isInput)
+    }
+
+    // =========================================================
+    // Node Types
+    // =========================================================
+    const nodeTypes: NodeTypesObject = { 'oj-node': markRaw(OjNode) as any }
+
+    // =========================================================
+    // Widget Picker
+    // =========================================================
+    const widgetPicker = reactive({
+      visible: false,
+      screenX: 0,
+      screenY: 0,
+      anchorFlowX: 0,
+      anchorFlowY: 0,
+    })
+
+    const pickerRef = ref<HTMLElement | null>(null)
+    const searchInputRef = ref<HTMLInputElement | null>(null)
+    const searchText = ref('')
+
+    const allWidgets = computed<PickerWidget[]>(() => {
+      return Object.values(WIDGET_DEFINITIONS).map((w) => ({
+        ...w,
+        categoryColor: getCategoryColor((w as any).categoryId),
+      }))
+    })
+
+    const filteredWidgets = computed<PickerWidget[]>(() => {
+      const q = searchText.value.trim().toLowerCase()
+      if (!q) return allWidgets.value
+      return allWidgets.value.filter((w) => {
+        const a = (w.label || '').toLowerCase()
+        const b = (w.id || '').toLowerCase()
+        return a.includes(q) || b.includes(q)
+      })
+    })
+
+    const openWidgetPickerAt = (clientX: number, clientY: number) => {
+      const flow = toFlowPosFromClient(clientX, clientY)
+      widgetPicker.anchorFlowX = flow.x
+      widgetPicker.anchorFlowY = flow.y
+      widgetPicker.screenX = clientX
+      widgetPicker.screenY = clientY
+      widgetPicker.visible = true
+      nextTick(() => searchInputRef.value?.focus())
+    }
+
+    const closeWidgetPicker = () => {
+      widgetPicker.visible = false
+    }
+
+    // =========================================================
+    // Node add
+    // =========================================================
+    const createStoreNode = (widgetId: string, x: number, y: number): StoreNode => {
       const def = getWidgetDef(widgetId)
-      if (!def) return null
+      const label = def?.label ?? widgetId
 
-      const newNodeId = `node_${Date.now()}_${Math.random().toString(16).slice(2)}`
-      ;(workflowStore.nodes as any[]).push({
-        id: newNodeId,
+      return {
+        id: `node_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         widgetType: widgetId,
-        name: def.label ?? widgetId,
-        title: def.label ?? widgetId,
-        position: { x: flowPos.x, y: flowPos.y },
+        name: label,
+        title: label,
+        label,
+        position: { x, y },
         params: {},
-      })
-
-      // ✅ 핸들이 DOM에 올라오기 전에 엣지가 그려져 초기 연결이 떠보이는 현상 완화
-      await ensureNodeInternals(newNodeId)
-
-      return newNodeId
-    }
-
-    const createNodeAtCenter = async (widgetId: string) => {
-      const rect = getCanvasRect()
-      if (!rect) {
-        await createNodeAtFlowPos(widgetId, { x: 0, y: 0 })
-        return
       }
-      const cx = rect.left + rect.width / 2
-      const cy = rect.top + rect.height / 2
-      const flowPos = toFlowPosFromClient(cx, cy)
-      await createNodeAtFlowPos(widgetId, { x: flowPos.x, y: flowPos.y })
     }
 
-    // 팔레트 클릭(중앙 생성) 이벤트
-    const onAddWidgetEvent = (evt: Event) => {
-      const e = evt as CustomEvent<{ widgetId: string }>
-      const widgetId = e.detail?.widgetId
-      if (!widgetId) return
-      if (!getWidgetDef(widgetId)) return
-      void createNodeAtCenter(widgetId)
+    const addNodeAtFlowPos = async (widgetId: string, x: number, y: number) => {
+      const node = createStoreNode(widgetId, x, y)
+      ;(workflowStore.nodes as unknown as StoreNode[]).push(node)
+      await ensureNodeInternals(node.id)
+      return node.id
     }
 
-    // Drag & Drop → drop 위치 생성
+    const createNodeFromWidget = async (w: PickerWidget) => {
+      await addNodeAtFlowPos(w.id, widgetPicker.anchorFlowX, widgetPicker.anchorFlowY)
+      closeWidgetPicker()
+    }
+
     const handleDrop = async (e: DragEvent) => {
       const dt = e.dataTransfer
       if (!dt) return
@@ -188,75 +277,17 @@ export default defineNuxtComponent({
       if (!widgetId) return
       if (!getWidgetDef(widgetId)) return
 
-      const flowPos = toFlowPosFromClient(e.clientX, e.clientY)
-      await createNodeAtFlowPos(widgetId, { x: flowPos.x, y: flowPos.y })
+      const flow = toFlowPosFromClient(e.clientX, e.clientY)
+      await addNodeAtFlowPos(widgetId, flow.x, flow.y)
     }
 
     // =========================================================
-    // Widget Picker: "최초 호출 위치(anchor)"에 노드 생성
+    // Flow Nodes
     // =========================================================
-    const widgetPicker = reactive({
-      visible: false,
+    const flowNodes = computed<FlowNode[]>(() => {
+      const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
+      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
 
-      // 표시 좌표 (대화상자 위치)
-      screenX: 0,
-      screenY: 0,
-
-      // ✅ 앵커: 최초 호출 위치(노드 생성 기준)
-      anchorFlowX: 0,
-      anchorFlowY: 0,
-    })
-
-    const pickerRef = ref<HTMLElement | null>(null)
-    const searchInputRef = ref<HTMLInputElement | null>(null)
-    const searchText = ref('')
-
-    const allWidgets = computed(() =>
-        Object.values(WIDGET_DEFINITIONS).map((w) => ({
-          ...w,
-          categoryColor: getCategoryColor(w.categoryId),
-        })),
-    )
-
-    const filteredWidgets = computed(() => {
-      const q = searchText.value.trim().toLowerCase()
-      if (!q) return allWidgets.value
-      return allWidgets.value.filter(
-          (w) => w.label.toLowerCase().includes(q) || w.id.toLowerCase().includes(q),
-      )
-    })
-
-    // ✅ 호출 위치(px,py) 저장: 노드는 항상 이 위치(anchorFlow) 기준으로 생성
-    const openWidgetPickerAt = (clientX: number, clientY: number) => {
-      const flow = toFlowPosFromClient(clientX, clientY)
-
-      widgetPicker.anchorFlowX = flow.x
-      widgetPicker.anchorFlowY = flow.y
-
-      widgetPicker.screenX = clientX
-      widgetPicker.screenY = clientY
-
-      widgetPicker.visible = true
-      nextTick(() => searchInputRef.value?.focus())
-    }
-
-    const closeWidgetPicker = () => {
-      widgetPicker.visible = false
-    }
-
-    // =========================================================
-    // VueFlow node types
-    // =========================================================
-    const nodeTypes: NodeTypesObject = { 'oj-node': markRaw(OjNode) as any }
-
-    // =========================================================
-    // [1] 노드 & 포트 계산 (edges 기반, 각도 정렬)
-    // =========================================================
-    const flowNodes = computed(() => {
-      const nodes = workflowStore.nodes || []
-      const edges = workflowStore.edges || []
-
-      // 노드 중심 좌표
       const centerMap: Record<string, { x: number; y: number }> = {}
       nodes.forEach((n) => {
         centerMap[n.id] = {
@@ -267,63 +298,32 @@ export default defineNuxtComponent({
 
       return nodes.map((n) => {
         const def = getWidgetDef(n.widgetType)
+
+        const defInputs = ((def?.inputs || []) as any[]).map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
+        const defOutputs = ((def?.outputs || []) as any[]).map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
+
+        const incoming = edges.filter((e) => e.target === n.id)
+        const outgoing = edges.filter((e) => e.source === n.id)
+
+        // 들어오는/나가는 엣지를 각도 정렬 (undefined 안전)
         const center = centerMap[n.id]
-
-        // ✅ 위젯 정의서 슬롯 (아크 표시 + ghost handle 생성용)
-        const defInputs = ((def?.inputs || []) as any[]) ?? []
-        const defOutputs = ((def?.outputs || []) as any[]) ?? []
-
-        const slotInputs = defInputs
-            .map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
-            .filter(Boolean)
-
-        const slotOutputs = defOutputs
-            .map((v) => (typeof v === 'string' ? v : v?.name) || 'Data')
-            .filter(Boolean)
-
-        // 들어오는/나가는 엣지
-        const incoming = edges.filter((e) => e.target === n.id && centerMap[e.source])
-        const outgoing = edges.filter((e) => e.source === n.id && centerMap[e.target])
-
-        // 입력 CCW, 출력 CW 정렬
         if (center) {
-          incoming.sort((a, b) => {
-            const srcA = centerMap[a.source]
-            const srcB = centerMap[b.source]
-            if (!srcA || !srcB) return 0
-            const sa = getAngleScore(center, srcA, true)
-            const sb = getAngleScore(center, srcB, true)
-            return sa - sb
-          })
-          outgoing.sort((a, b) => {
-            const tgtA = centerMap[a.target]
-            const tgtB = centerMap[b.target]
-            if (!tgtA || !tgtB) return 0
-            const sa = getAngleScore(center, tgtA, false)
-            const sb = getAngleScore(center, tgtB, false)
-            return sa - sb
-          })
+          incoming.sort((a, b) => safeScore(center, centerMap[a.source], true) - safeScore(center, centerMap[b.source], true))
+          outgoing.sort((a, b) => safeScore(center, centerMap[a.target], false) - safeScore(center, centerMap[b.target], false))
         }
 
-        // ✅ "진짜 핸들(점)"은 edges 기반으로만 생성
-        const inputsArray: { id: string; name: string }[] =
+        const inputsArray =
             incoming.length > 0
                 ? incoming.map((e, idx) => {
-                  const ch =
-                      e.targetChannel && String(e.targetChannel).trim() !== ''
-                          ? e.targetChannel
-                          : 'Data'
+                  const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
                   return { id: `${ch}#${idx}`, name: ch }
                 })
                 : []
 
-        const outputsArray: { id: string; name: string }[] =
+        const outputsArray =
             outgoing.length > 0
                 ? outgoing.map((e, idx) => {
-                  const ch =
-                      e.sourceChannel && String(e.sourceChannel).trim() !== ''
-                          ? e.sourceChannel
-                          : 'Data'
+                  const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
                   return { id: `${ch}#${idx}`, name: ch }
                 })
                 : []
@@ -335,30 +335,27 @@ export default defineNuxtComponent({
           data: {
             label: n.title || n.name,
             widgetId: n.widgetType,
-            icon: def?.icon,
+            icon: (def as any)?.icon,
 
-            // ✅ 아크 표시용
-            hasInputSlot: slotInputs.length > 0,
-            hasOutputSlot: slotOutputs.length > 0,
+            hasInputSlot: defInputs.length > 0,
+            hasOutputSlot: defOutputs.length > 0,
 
-            // ✅ ghost handle 생성용 (연결 없어도 handle은 존재해야 아크→아크 연결 가능)
-            slotInputs,
-            slotOutputs,
+            slotInputs: defInputs,
+            slotOutputs: defOutputs,
 
-            // ✅ 연결된 경우에만 보이는 “진짜 핸들”
             inputs: inputsArray,
             outputs: outputsArray,
           },
-        }
+        } as FlowNode
       })
     })
 
     // =========================================================
-    // [2] 엣지 생성: 각도 정렬 기반 handle id 매핑
+    // Flow Edges
     // =========================================================
-    const flowEdges = computed(() => {
-      const nodes = workflowStore.nodes || []
-      const edges = workflowStore.edges || []
+    const flowEdges = computed<FlowEdge[]>(() => {
+      const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
+      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
       if (!edges.length) return []
 
       const centerMap: Record<string, { x: number; y: number }> = {}
@@ -376,38 +373,24 @@ export default defineNuxtComponent({
         const center = centerMap[n.id]
         if (!center) return
 
-        const outEdges = edges.filter((e) => e.source === n.id && centerMap[e.target])
-        outEdges.sort((a, b) => {
-          const tgtA = centerMap[a.target]
-          const tgtB = centerMap[b.target]
-          if (!tgtA || !tgtB) return 0
-          return getAngleScore(center, tgtA, false) - getAngleScore(center, tgtB, false)
-        })
+        const outEdges = edges.filter((e) => e.source === n.id)
+        outEdges.sort((a, b) => safeScore(center, centerMap[a.target], false) - safeScore(center, centerMap[b.target], false))
         outEdges.forEach((e, idx) => {
-          const ch =
-              e.sourceChannel && String(e.sourceChannel).trim() !== '' ? e.sourceChannel : 'Data'
+          const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
           sourceHandleMap[e.id] = `${ch}#${idx}`
         })
 
-        const inEdges = edges.filter((e) => e.target === n.id && centerMap[e.source])
-        inEdges.sort((a, b) => {
-          const srcA = centerMap[a.source]
-          const srcB = centerMap[b.source]
-          if (!srcA || !srcB) return 0
-          return getAngleScore(center, srcA, true) - getAngleScore(center, srcB, true)
-        })
+        const inEdges = edges.filter((e) => e.target === n.id)
+        inEdges.sort((a, b) => safeScore(center, centerMap[a.source], true) - safeScore(center, centerMap[b.source], true))
         inEdges.forEach((e, idx) => {
-          const ch =
-              e.targetChannel && String(e.targetChannel).trim() !== '' ? e.targetChannel : 'Data'
+          const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
           targetHandleMap[e.id] = `${ch}#${idx}`
         })
       })
 
       return edges.map((e) => {
-        const baseSource =
-            e.sourceChannel && String(e.sourceChannel).trim() !== '' ? e.sourceChannel : 'Data'
-        const baseTarget =
-            e.targetChannel && String(e.targetChannel).trim() !== '' ? e.targetChannel : 'Data'
+        const baseSource = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
+        const baseTarget = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
 
         const sHandle = sourceHandleMap[e.id] ?? baseSource
         const tHandle = targetHandleMap[e.id] ?? baseTarget
@@ -425,70 +408,23 @@ export default defineNuxtComponent({
             strokeWidth: 2,
             strokeDasharray: '4 4',
           },
-        }
+        } as FlowEdge
       })
     })
 
     // =========================================================
-    // 노드 드래그
+    // Node Drag
     // =========================================================
-    function handleNodeDrag(event: NodeDragEvent) {
-      const target = workflowStore.nodes.find((n) => n.id === event.node.id)
-      if (target) {
-        target.position.x = event.node.position.x
-        target.position.y = event.node.position.y
-      }
+    const handleNodeDrag = (evt: NodeDragEvent) => {
+      const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
+      const t = nodes.find((n) => n.id === evt.node.id)
+      if (!t) return
+      t.position.x = evt.node.position.x
+      t.position.y = evt.node.position.y
     }
 
     // =========================================================
-    // 최초 viewport fit (1회)
-    // =========================================================
-    const hasViewportFitted = ref(false)
-
-    const fitAllNodesWithViewport = async () => {
-      if (hasViewportFitted.value || flowNodes.value.length === 0) return
-      await nextTick()
-
-      const nodes = flowNodes.value
-      let minX = Infinity,
-          maxX = -Infinity,
-          minY = Infinity,
-          maxY = -Infinity
-
-      nodes.forEach((n) => {
-        if (n.position.x < minX) minX = n.position.x
-        if (n.position.x > maxX) maxX = n.position.x
-        if (n.position.y < minY) minY = n.position.y
-        if (n.position.y > maxY) maxY = n.position.y
-      })
-      if (!isFinite(minX)) return
-
-      const viewW = dimensions.value?.width || 800
-      const viewH = dimensions.value?.height || 600
-
-      const rawW = maxX - minX + NODE_DIAMETER
-      const rawH = maxY - minY + NODE_DIAMETER
-
-      const zoom = Math.min(viewW / (rawW * 1.5), viewH / (rawH * 1.5), MAX_ZOOM)
-
-      const cx = minX + rawW / 2
-      const cy = minY + rawH / 2
-
-      await setViewport({
-        x: viewW / 2 - cx * Math.max(MIN_ZOOM, zoom),
-        y: viewH / 2 - cy * Math.max(MIN_ZOOM, zoom),
-        zoom: Math.max(MIN_ZOOM, zoom),
-      })
-
-      hasViewportFitted.value = true
-    }
-
-    const handlePaneReady = () => {
-      fitAllNodesWithViewport()
-    }
-
-    // =========================================================
-    // 연결 생성 (store에는 channel만 저장)
+    // Connect
     // =========================================================
     const connectingFrom = ref<any>(null)
 
@@ -497,22 +433,22 @@ export default defineNuxtComponent({
     }
 
     const handleConnect = (params: any) => {
-      const newEdge = {
-            id: `e-${Date.now()}`,
+      const newEdge: StoreEdge = {
+            id: `edge_${Date.now()}_${Math.random().toString(16).slice(2)}`,
             source: params.source,
             target: params.target,
-            sourceChannel: stripHandleIndex(params.sourceHandle) || 'Data',
-            targetChannel: stripHandleIndex(params.targetHandle) || 'Data',
+            sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
+            targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
           }
-      ;(workflowStore.edges as any[]).push(newEdge)
+
+      ;(workflowStore.edges as unknown as StoreEdge[]).push(newEdge)
 
       void ensureNodeInternals(params.source)
       void ensureNodeInternals(params.target)
     }
 
     const handleConnectEnd = (evt: any) => {
-      if (!connectingFrom.value) return
-      const mouse = evt?.event as MouseEvent
+      const mouse = evt?.event as MouseEvent | undefined
       if (mouse) openWidgetPickerAt(mouse.clientX, mouse.clientY)
       connectingFrom.value = null
     }
@@ -526,104 +462,180 @@ export default defineNuxtComponent({
     }
 
     const handlePaneClick = () => {
-      if (widgetPicker.visible) widgetPicker.visible = false
-    }
-
-    // =========================================================
-    // 피커에서 위젯 선택 → "최초 호출 위치(anchor)"에 생성
-    // + 연결 중이면 자동 엣지 생성
-    // =========================================================
-    const createNodeFromWidget = async (w: WidgetDefinition & { categoryColor?: string }) => {
-      const newNodeId = await createNodeAtFlowPos(w.id, {
-        x: widgetPicker.anchorFlowX,
-        y: widgetPicker.anchorFlowY,
-      })
-
-      if (!newNodeId) {
-        closeWidgetPicker()
-        return
-      }
-
-      if (connectingFrom.value) {
-        const from = connectingFrom.value
-        const isSrc = from.handleType === 'source'
-
-        const def = getWidgetDef(w.id)
-        const defInputs = ((def?.inputs || []) as any[]) ?? []
-        const defOutputs = ((def?.outputs || []) as any[]) ?? []
-
-        const firstInput =
-            (defInputs[0] && typeof defInputs[0] === 'object' ? defInputs[0].name : defInputs[0]) ||
-            'Data'
-        const firstOutput =
-            (defOutputs[0] && typeof defOutputs[0] === 'object' ? defOutputs[0].name : defOutputs[0]) ||
-            'Data'
-
-        const fromChannel = stripHandleIndex(from.handleId) || 'Data'
-
-        const targetPort = isSrc ? firstInput : fromChannel
-        const sourcePort = isSrc ? fromChannel : firstOutput
-
-        ;(workflowStore.edges as any[]).push({
-          id: `edge_${Date.now()}`,
-          source: isSrc ? from.nodeId : newNodeId,
-          target: isSrc ? newNodeId : from.nodeId,
-          sourceChannel: sourcePort,
-          targetChannel: targetPort,
-        })
-
-        await ensureNodeInternals(from.nodeId)
-        await ensureNodeInternals(newNodeId)
-      }
-
       closeWidgetPicker()
+      wrapperRef.value?.focus()
     }
 
-    // 최초 노드 로드 시 1회 fit
+    // =========================================================
+    // Viewport fit (1회)
+    // =========================================================
+    const hasViewportFitted = ref(false)
+
+    const fitAllNodesOnce = async () => {
+      if (hasViewportFitted.value) return
+      if (flowNodes.value.length === 0) return
+
+      await nextTick()
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      flowNodes.value.forEach((n) => {
+        minX = Math.min(minX, n.position.x)
+        minY = Math.min(minY, n.position.y)
+        maxX = Math.max(maxX, n.position.x)
+        maxY = Math.max(maxY, n.position.y)
+      })
+      if (!isFinite(minX)) return
+
+      const viewW = dimensions?.value?.width ?? 1200
+      const viewH = dimensions?.value?.height ?? 800
+
+      const rawW = (maxX - minX) + NODE_DIAMETER
+      const rawH = (maxY - minY) + NODE_DIAMETER
+
+      const zoom = Math.max(
+          MIN_ZOOM,
+          Math.min(viewW / (rawW * 1.4), viewH / (rawH * 1.4), MAX_ZOOM),
+      )
+
+      const cx = minX + rawW / 2
+      const cy = minY + rawH / 2
+
+      await Promise.resolve(setViewport({
+        x: viewW / 2 - cx * zoom,
+        y: viewH / 2 - cy * zoom,
+        zoom,
+      }))
+
+      hasViewportFitted.value = true
+    }
+
+    const handlePaneReady = () => {
+      void fitAllNodesOnce()
+      nextTick(() => wrapperRef.value?.focus())
+    }
+
     watch(
         () => flowNodes.value.length,
-        async (newLen, oldLen) => {
-          if (oldLen === 0 && newLen > 0) {
+        async (n, o) => {
+          if (o === 0 && n > 0) {
             hasViewportFitted.value = false
-            await fitAllNodesWithViewport()
+            await fitAllNodesOnce()
           }
         },
     )
 
-    // 전역 이벤트(ESC 닫기 / 바깥 클릭 닫기)
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeWidgetPicker()
+    // =========================================================
+    // Delete / Backspace (선택된 edge 삭제 + 핸들 즉시 정리)
+    // =========================================================
+    const readSelectedEdges = (): any[] => {
+      if (typeof getSelectedEdgesRaw === 'function') {
+        try { return getSelectedEdgesRaw() || [] } catch { return [] }
+      }
+      if (getSelectedEdgesRaw && typeof getSelectedEdgesRaw === 'object' && 'value' in getSelectedEdgesRaw) {
+        return (getSelectedEdgesRaw.value as any[]) || []
+      }
+      return []
     }
 
-    const onGlobalMouseDown = (e: MouseEvent) => {
-      if (widgetPicker.visible && pickerRef.value && !pickerRef.value.contains(e.target as Node)) {
-        closeWidgetPicker()
+    const removeEdgesSafe = (edgeIds: string[]) => {
+      if (!edgeIds.length) return
+      if (typeof removeEdgesRaw === 'function') {
+        removeEdgesRaw(edgeIds)
+        return
+      }
+      if (removeEdgesRaw && typeof removeEdgesRaw === 'object' && typeof removeEdgesRaw.value === 'function') {
+        removeEdgesRaw.value(edgeIds)
       }
     }
 
+    const deleteSelectedEdges = async () => {
+      const selected = readSelectedEdges()
+      if (!selected.length) return
+
+      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
+      const storeIds = new Set<string>()
+      const affectedNodeIds = new Set<string>()
+      const flowEdgeIds: string[] = []
+
+      selected.forEach((fe: any) => {
+        const flowId = String(fe.id || '')
+        if (!flowId) return
+        flowEdgeIds.push(flowId)
+
+        const storeId = flowId.startsWith('e-') ? flowId.slice(2) : flowId
+        const edge = edges.find((e) => e.id === storeId)
+        if (!edge) return
+
+        storeIds.add(storeId)
+        affectedNodeIds.add(edge.source)
+        affectedNodeIds.add(edge.target)
+      })
+
+      removeEdgesSafe(flowEdgeIds)
+
+      workflowStore.edges = edges.filter((e) => !storeIds.has(e.id)) as any
+
+      await nextTick()
+      affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isDeleteKey =
+          e.key === 'Delete' ||
+          e.key === 'Backspace' ||
+          e.key === 'Del' ||
+          e.code === 'Delete'
+
+      if (!isDeleteKey) return
+
+      const el = e.target as HTMLElement | null
+      const isTyping =
+          el?.tagName === 'INPUT' ||
+          el?.tagName === 'TEXTAREA' ||
+          el?.isContentEditable
+
+      if (isTyping) return
+
+      const selected = readSelectedEdges()
+      if (!selected.length) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      void deleteSelectedEdges()
+    }
+
+    // =========================================================
+    // Global mouse down: picker 밖 클릭 닫기 (DOM Node 충돌 해결)
+    // =========================================================
+    const onGlobalMouseDown = (e: MouseEvent) => {
+      if (!widgetPicker.visible) return
+      if (!pickerRef.value) return
+
+      const t = e.target
+      if (t instanceof globalThis.Node && pickerRef.value.contains(t)) return
+
+      closeWidgetPicker()
+    }
+
     onMounted(() => {
-      window.addEventListener('keydown', onKeyDown)
       window.addEventListener('mousedown', onGlobalMouseDown)
-      window.addEventListener('oj:add-widget', onAddWidgetEvent as any)
+      nextTick(() => wrapperRef.value?.focus())
     })
 
     onBeforeUnmount(() => {
-      window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('mousedown', onGlobalMouseDown)
-      window.removeEventListener('oj:add-widget', onAddWidgetEvent as any)
     })
 
     return {
       wrapperRef,
 
+      nodeTypes,
       flowNodes,
       flowEdges,
-      nodeTypes,
 
-      handleDrop,
-
-      handleNodeDrag,
       handlePaneReady,
+      handleNodeDrag,
 
       handleConnectStart,
       handleConnect,
@@ -632,13 +644,16 @@ export default defineNuxtComponent({
       handlePaneContextMenu,
       handlePaneClick,
 
+      handleDrop,
+
       widgetPicker,
       pickerRef,
       searchInputRef,
       searchText,
-
       filteredWidgets,
       createNodeFromWidget,
+
+      onKeyDown,
     }
   },
 })
@@ -646,9 +661,9 @@ export default defineNuxtComponent({
 
 <style scoped>
 .oj-workflow-wrapper {
-  flex: 1;
-  display: flex;
+  width: 100%;
   height: 100%;
+  outline: none;
   min-width: 0;
 }
 
@@ -658,16 +673,16 @@ export default defineNuxtComponent({
   background: #f8fafc;
 }
 
-/* ---------- picker ---------- */
+/* picker */
 .oj-widget-picker {
   position: fixed;
   z-index: 1000;
   min-width: 260px;
   padding: 8px;
   background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid #d7d7d7;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -675,55 +690,43 @@ export default defineNuxtComponent({
 
 .oj-widget-picker-search {
   width: 100%;
-  padding: 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #cfcfcf;
+  border-radius: 8px;
   outline: none;
 }
 
-.oj-widget-picker-search:focus {
-  border-color: #2196f3;
-}
-
 .oj-widget-picker-list {
-  max-height: 200px;
-  overflow-y: auto;
-  list-style: none;
-  padding: 0;
   margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 240px;
+  overflow: auto;
 }
 
 .oj-widget-picker-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
   cursor: pointer;
-  border-radius: 4px;
 }
 
 .oj-widget-picker-item:hover {
-  background: #f0f0f0;
+  background: #f2f4f7;
 }
 
-.oj-widget-picker-icon {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.oj-widget-picker-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+.oj-widget-picker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 auto;
 }
 
 .oj-widget-picker-label {
   font-size: 13px;
-  color: #333;
+  color: #222;
 }
 </style>
