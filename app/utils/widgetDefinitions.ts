@@ -182,7 +182,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/AggregateColumns.svg"
     },
-    "Groupby": {
+    "GroupBy": {
         id: "GroupBy", label: "Group By", categoryId: "data",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/GroupBy.svg"
