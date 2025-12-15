@@ -53,10 +53,20 @@
               class="oj-widget-picker-item"
               @click="createNodeFromWidget(w)"
           >
-            <span
-                class="oj-widget-picker-dot"
-                :style="{ backgroundColor: w.categoryColor }"
-            />
+            <span class="oj-widget-picker-icon">
+              <img
+                  v-if="w.icon"
+                  :src="w.icon"
+                  alt=""
+                  draggable="false"
+              />
+              <span
+                  v-else
+                  class="oj-widget-picker-dot"
+                  :style="{ backgroundColor: w.categoryColor }"
+              />
+            </span>
+
             <span class="oj-widget-picker-label">
               {{ w.label }}
             </span>
@@ -124,6 +134,7 @@ type StoreEdge = {
   target: string
   sourceChannel?: string | null
   targetChannel?: string | null
+  enable?: boolean
 }
 
 type PickerWidget = WidgetDefinition & { categoryColor: string }
@@ -133,7 +144,6 @@ export default defineNuxtComponent({
   setup() {
     const workflowStore = useWorkflowStore()
 
-    // useVueFlow() 타입 변동(버전차) 대비: any로 받고 안전 래퍼 사용
     const vf: any = useVueFlow()
 
     const project = vf.project as (p: { x: number; y: number }) => { x: number; y: number }
@@ -171,15 +181,12 @@ export default defineNuxtComponent({
       requestAnimationFrame(() => updateNodeInternals([nodeId]))
     }
 
-    // =========================================================
-    // getAngleScore undefined 방어 (스크린샷 에러의 본체)
-    // =========================================================
+    // getAngleScore undefined 방어
     const safeScore = (
         center: { x: number; y: number },
         other: { x: number; y: number } | undefined,
         isInput: boolean,
     ) => {
-      // other가 undefined면 center로 대체 → score=0 계열로 정렬 안정화
       const p = other ?? center
       return getAngleScore(center, p, isInput)
     }
@@ -305,7 +312,6 @@ export default defineNuxtComponent({
         const incoming = edges.filter((e) => e.target === n.id)
         const outgoing = edges.filter((e) => e.source === n.id)
 
-        // 들어오는/나가는 엣지를 각도 정렬 (undefined 안전)
         const center = centerMap[n.id]
         if (center) {
           incoming.sort((a, b) => safeScore(center, centerMap[a.source], true) - safeScore(center, centerMap[b.source], true))
@@ -337,12 +343,13 @@ export default defineNuxtComponent({
             widgetId: n.widgetType,
             icon: (def as any)?.icon,
 
+            // 핸들 없어도 slot 정의가 있으면 점선 아크 유지 (OjNode에서 처리)
             hasInputSlot: defInputs.length > 0,
             hasOutputSlot: defOutputs.length > 0,
-
             slotInputs: defInputs,
             slotOutputs: defOutputs,
 
+            // 연결된 경우만 실제 핸들 생성
             inputs: inputsArray,
             outputs: outputsArray,
           },
@@ -351,7 +358,18 @@ export default defineNuxtComponent({
     })
 
     // =========================================================
+    // Edge label
+    // =========================================================
+    const buildEdgeLabel = (e: StoreEdge) => {
+      const s = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
+      const t = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
+      return s === t ? s : `${s} → ${t}`
+    }
+
+    // =========================================================
     // Flow Edges
+    // - 비선택: 얇은선 + 라벨 흰 배경(노드라벨 톤)
+    // - 선택: CSS로 굵기 + 파란 pill + 흰 글씨
     // =========================================================
     const flowEdges = computed<FlowEdge[]>(() => {
       const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
@@ -366,6 +384,7 @@ export default defineNuxtComponent({
         }
       })
 
+      // 각 노드 기준으로 정렬 후 #idx 부여
       const sourceHandleMap: Record<string, string> = {}
       const targetHandleMap: Record<string, string> = {}
 
@@ -389,11 +408,14 @@ export default defineNuxtComponent({
       })
 
       return edges.map((e) => {
+        const enabled = e.enable !== false
+        const label = buildEdgeLabel(e)
+
         const baseSource = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
         const baseTarget = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
 
-        const sHandle = sourceHandleMap[e.id] ?? baseSource
-        const tHandle = targetHandleMap[e.id] ?? baseTarget
+        const sHandle = sourceHandleMap[e.id] ?? `${baseSource}#0`
+        const tHandle = targetHandleMap[e.id] ?? `${baseTarget}#0`
 
         return {
           id: `e-${e.id}`,
@@ -401,13 +423,27 @@ export default defineNuxtComponent({
           target: e.target,
           sourceHandle: sHandle,
           targetHandle: tHandle,
+
           type: 'default',
-          animated: false,
+
           style: {
             stroke: '#8EA0B2',
             strokeWidth: 2,
-            strokeDasharray: '4 4',
+            strokeDasharray: enabled ? undefined : '4 4',
           },
+
+          // ✅ 비선택 라벨 (흰 배경)
+          label,
+          labelStyle: {
+            fill: '#4b5563',
+            fontSize: 11,
+            fontWeight: 500,
+          },
+          labelBgStyle: {
+            rx: 6,
+            ry: 6,
+          },
+          labelBgPadding: [7, 5],
         } as FlowEdge
       })
     })
@@ -424,44 +460,14 @@ export default defineNuxtComponent({
     }
 
     // =========================================================
-    // Connect
+    // Connect + 중복검증 (같은 source-target 있으면 추가 금지)
     // =========================================================
-    const connectingFrom = ref<any>(null)
-
-    const hasSameConnection = (
-        sourceId: string,
-        targetId: string,
-        sourceChannel?: string | null,
-        targetChannel?: string | null,
-    ) => {
-      const edges = (workflowStore.edges || []) as any[]
-
-      const sCh = (sourceChannel && String(sourceChannel).trim() !== '')
-          ? String(sourceChannel)
-          : 'Data'
-      const tCh = (targetChannel && String(targetChannel).trim() !== '')
-          ? String(targetChannel)
-          : 'Data'
-
-      // ✅ “같은 노드끼리” 중복 연결 금지 (채널 무시)
-      const alreadyByNodes = edges.some(
-          (e) => e.source === sourceId && e.target === targetId,
-      )
-
-      // (선택) 더 엄격하게: 같은 채널까지 같으면 중복 금지
-      const alreadyByChannels = edges.some(
-          (e) =>
-              e.source === sourceId &&
-              e.target === targetId &&
-              (String(e.sourceChannel || 'Data') === sCh) &&
-              (String(e.targetChannel || 'Data') === tCh),
-      )
-
-      // 요구사항이 “같은 노드끼리 이미 연결” 이므로 노드 기준으로 막음
-      // 필요하면 alreadyByChannels 로 바꾸면 됨
-      return alreadyByNodes || alreadyByChannels
+    const hasSameConnection = (sourceId: string, targetId: string) => {
+      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
+      return edges.some((e) => e.source === sourceId && e.target === targetId)
     }
 
+    const connectingFrom = ref<any>(null)
 
     const handleConnectStart = (params: any) => {
       connectingFrom.value = params
@@ -472,21 +478,15 @@ export default defineNuxtComponent({
       const tId = String(params.target || '')
       if (!sId || !tId) return
 
-      const sCh = stripHandleIndex(params.sourceHandle) ?? 'Data'
-      const tCh = stripHandleIndex(params.targetHandle) ?? 'Data'
-
-      // ✅ 같은 노드 pair 중복 연결 방지
-      if (hasSameConnection(sId, tId, sCh, tCh)) {
-        // 필요하면 토스트/알림 추가 가능 (지금은 조용히 무시)
-        return
-      }
+      if (hasSameConnection(sId, tId)) return
 
       const newEdge: StoreEdge = {
             id: `edge_${Date.now()}_${Math.random().toString(16).slice(2)}`,
             source: sId,
             target: tId,
-            sourceChannel: sCh,
-            targetChannel: tCh,
+            sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
+            targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
+            enable: true,
           }
 
       ;(workflowStore.edges as unknown as StoreEdge[]).push(newEdge)
@@ -494,7 +494,6 @@ export default defineNuxtComponent({
       void ensureNodeInternals(sId)
       void ensureNodeInternals(tId)
     }
-
 
     const handleConnectEnd = (evt: any) => {
       const mouse = evt?.event as MouseEvent | undefined
@@ -722,6 +721,39 @@ export default defineNuxtComponent({
   background: #f8fafc;
 }
 
+/* ✅ 엣지가 클릭/선택 안 되는 케이스 방지 */
+:deep(.vue-flow__edge) {
+  pointer-events: all;
+}
+
+/* =========================
+ * Edge 선택 UX
+ * - 비선택: 라벨 흰 배경 + 회색 글씨
+ * - 선택: 파란 pill + 흰 글씨 + 선 굵기 증가
+ * ========================= */
+
+/* 비선택 라벨 기본값(혹시 다른 CSS가 덮으면 복구) */
+:deep(.vue-flow__edge .vue-flow__edge-text) {
+  fill: #4b5563 !important;
+}
+:deep(.vue-flow__edge .vue-flow__edge-textbg) {
+  fill: transparent !important;
+}
+
+/* 선택된 엣지 선 굵기 */
+:deep(.vue-flow__edge.selected path) {
+  stroke-width: 4 !important;
+}
+
+/* 선택된 엣지 라벨 반전 */
+:deep(.vue-flow__edge.selected .vue-flow__edge-text) {
+  fill: #ffffff !important;
+  font-weight: 600 !important;
+}
+:deep(.vue-flow__edge.selected .vue-flow__edge-textbg) {
+  fill: #2f6fed !important;
+}
+
 /* picker */
 .oj-widget-picker {
   position: fixed;
@@ -765,6 +797,24 @@ export default defineNuxtComponent({
 
 .oj-widget-picker-item:hover {
   background: #f2f4f7;
+}
+
+/* ✅ 팝업 아이콘 스타일 복구 */
+.oj-widget-picker-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: #f6f6f6;
+  border: 1px solid #e6e6e6;
+}
+
+.oj-widget-picker-icon img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 
 .oj-widget-picker-dot {
