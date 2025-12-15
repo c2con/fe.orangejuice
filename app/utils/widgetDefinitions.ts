@@ -706,21 +706,6 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         icon: "/icons/widgets/associate/AssociationRules.svg" // 아이콘 경로 확인 필요
     },
 
-    // =================================================================
-    // 🔗 ALIAS (OWS 파일 내 클래스 이름 매핑)
-    // =================================================================
-    "DataTable": { id: "Table", label: "Data Table", categoryId: "data", inputs: ["Data"], outputs: ["Selected Data", "Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/data/Table.svg" },
-    "TreeLearner": { id: "Tree", label: "Tree", categoryId: "model", inputs: ["Data", "Preprocessor", "Sample Weights"], outputs: ["Model", "Learner", "Tree", "Selected Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/model/Tree.svg" },
-    "SelectAttributes": { id: "SelectColumns", label: "Select Columns", categoryId: "data", inputs: ["Data", "Features"], outputs: ["Data", "Features"], hasInput: true, hasOutput: true, icon: "/icons/widgets/data/SelectColumns.svg" },
-    "TreeGraph": { id: "TreeViewer", label: "Tree Viewer", categoryId: "visualize", inputs: ["Tree"], outputs: ["Selected Data", "Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/visualize/TreeViewer.svg" },
-    "TestLearners": { id: "TestAndScore", label: "Test and Score", categoryId: "evaluate", inputs: ["Data", "Test Data", "Learner"], outputs: ["Evaluation Results", "Predictions", "Test Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/evaluate/TestLearners1.svg" },
-
-    // 공백 포함 이름 매칭
-    "Data Sampler": { id: "DataSampler", label: "Data Sampler", categoryId: "data", inputs: ["Data"], outputs: ["Data Sample", "Remaining Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/data/DataSampler.svg" },
-    "Select Columns": { id: "SelectColumns", label: "Select Columns", categoryId: "data", inputs: ["Data", "Features"], outputs: ["Data", "Features"], hasInput: true, hasOutput: true, icon: "/icons/widgets/data/SelectColumns.svg" },
-    "Test and Score": { id: "TestAndScore", label: "Test and Score", categoryId: "evaluate", inputs: ["Data", "Test Data", "Learner"], outputs: ["Evaluation Results", "Predictions", "Test Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/evaluate/TestLearners1.svg" },
-    "Confusion Matrix": { id: "ConfusionMatrix", label: "Confusion Matrix", categoryId: "evaluate", inputs: ["Evaluation Results"], outputs: ["Selected Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/evaluate/ConfusionMatrix.svg" },
-    "Tree Viewer": { id: "TreeViewer", label: "Tree Viewer", categoryId: "visualize", inputs: ["Tree"], outputs: ["Selected Data", "Data"], hasInput: true, hasOutput: true, icon: "/icons/widgets/visualize/TreeViewer.svg" }
 };
 
 /**
