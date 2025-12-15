@@ -224,5 +224,23 @@ export const useWorkflowStore = defineStore('workflow', {
                     }),
                 )
         },
+
+        // stores/workflow.ts (actions 안에 추가)
+        addNode(widgetType: string, position: { x: number; y: number }, title?: string) {
+            const id = `node_${Date.now()}_${Math.random().toString(16).slice(2)}`
+            const name = title ?? widgetType
+            const node = {
+                    id,
+                    name,
+                    title: name,
+                    label: name,
+                    widgetType,
+                    position: { x: position.x, y: position.y },
+                    params: {},
+                }
+            ;(this.nodes as any[]).push(node)
+            return id
+        },
+
     },
 })
