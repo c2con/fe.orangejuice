@@ -486,7 +486,7 @@ export default defineNuxtComponent({
             target: tId,
             sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
             targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
-            enable: true,
+            enable: false,
           }
 
       ;(workflowStore.edges as unknown as StoreEdge[]).push(newEdge)
