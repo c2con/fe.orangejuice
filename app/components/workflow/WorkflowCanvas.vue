@@ -13,6 +13,7 @@
           :nodes="flowNodes"
           :edges="flowEdges"
           :node-types="nodeTypes"
+          :edge-types="edgeTypes"
           :elements-selectable="true"
           :edges-updatable="false"
           @pane-ready="handlePaneReady"
@@ -96,12 +97,14 @@ import type {
   Node as FlowNode,
   NodeDragEvent,
   NodeTypesObject,
+  EdgeTypesObject,
 } from '@vue-flow/core'
 
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
 import OjNode from '@/components/workflow/OjNode.vue'
+import OjEdge from '@/components/workflow/OjEdge.vue'
 import { useWorkflowStore } from '@/stores/workflow'
 
 import {
@@ -181,7 +184,6 @@ export default defineNuxtComponent({
       requestAnimationFrame(() => updateNodeInternals([nodeId]))
     }
 
-    // getAngleScore undefined 방어
     const safeScore = (
         center: { x: number; y: number },
         other: { x: number; y: number } | undefined,
@@ -192,9 +194,10 @@ export default defineNuxtComponent({
     }
 
     // =========================================================
-    // Node Types
+    // Node / Edge Types
     // =========================================================
     const nodeTypes: NodeTypesObject = { 'oj-node': markRaw(OjNode) as any }
+    const edgeTypes: EdgeTypesObject = { 'oj-edge': markRaw(OjEdge) as any }
 
     // =========================================================
     // Widget Picker
@@ -367,9 +370,7 @@ export default defineNuxtComponent({
     }
 
     // =========================================================
-    // Flow Edges
-    // - 비선택: 얇은선 + 라벨 흰 배경(노드라벨 톤)
-    // - 선택: CSS로 굵기 + 파란 pill + 흰 글씨
+    // Flow Edges (OjEdge 사용)
     // =========================================================
     const flowEdges = computed<FlowEdge[]>(() => {
       const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
@@ -424,26 +425,14 @@ export default defineNuxtComponent({
           sourceHandle: sHandle,
           targetHandle: tHandle,
 
-          type: 'default',
+          // ✅ 커스텀 edge로 라벨(textPath) 렌더
+          type: 'oj-edge',
 
-          style: {
-            stroke: '#8EA0B2',
-            strokeWidth: 2,
-            strokeDasharray: enabled ? undefined : '4 4',
+          // ✅ OjEdge가 읽는 data
+          data: {
+            label,
+            enabled,
           },
-
-          // ✅ 비선택 라벨 (흰 배경)
-          label,
-          labelStyle: {
-            fill: '#4b5563',
-            fontSize: 11,
-            fontWeight: 500,
-          },
-          labelBgStyle: {
-            rx: 6,
-            ry: 6,
-          },
-          labelBgPadding: [7, 5],
         } as FlowEdge
       })
     })
@@ -621,7 +610,7 @@ export default defineNuxtComponent({
 
       removeEdgesSafe(flowEdgeIds)
 
-      workflowStore.edges = edges.filter((e) => !storeIds.has(e.id)) as any
+      workflowStore.edges = edges.filter((x) => !storeIds.has(x.id)) as any
 
       await nextTick()
       affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
@@ -654,7 +643,7 @@ export default defineNuxtComponent({
     }
 
     // =========================================================
-    // Global mouse down: picker 밖 클릭 닫기 (DOM Node 충돌 해결)
+    // Global mouse down: picker 밖 클릭 닫기
     // =========================================================
     const onGlobalMouseDown = (e: MouseEvent) => {
       if (!widgetPicker.visible) return
@@ -677,8 +666,8 @@ export default defineNuxtComponent({
 
     return {
       wrapperRef,
-
       nodeTypes,
+      edgeTypes,
       flowNodes,
       flowEdges,
 
@@ -721,44 +710,11 @@ export default defineNuxtComponent({
   background: #f8fafc;
 }
 
-/* ✅ 엣지가 클릭/선택 안 되는 케이스 방지 */
-:deep(.vue-flow__edge) {
-  pointer-events: all;
-}
-
-/* =========================
- * Edge 선택 UX
- * - 비선택: 라벨 흰 배경 + 회색 글씨
- * - 선택: 파란 pill + 흰 글씨 + 선 굵기 증가
- * ========================= */
-
-/* 비선택 라벨 기본값(혹시 다른 CSS가 덮으면 복구) */
-:deep(.vue-flow__edge .vue-flow__edge-text) {
-  fill: #4b5563 !important;
-}
-:deep(.vue-flow__edge .vue-flow__edge-textbg) {
-  fill: transparent !important;
-}
-
-/* 선택된 엣지 선 굵기 */
-:deep(.vue-flow__edge.selected path) {
-  stroke-width: 4 !important;
-}
-
-/* 선택된 엣지 라벨 반전 */
-:deep(.vue-flow__edge.selected .vue-flow__edge-text) {
-  fill: #ffffff !important;
-  font-weight: 600 !important;
-}
-:deep(.vue-flow__edge.selected .vue-flow__edge-textbg) {
-  fill: #2f6fed !important;
-}
-
 /* picker */
 .oj-widget-picker {
   position: fixed;
   z-index: 1000;
-  min-width: 260px;
+  min-width: 280px;
   padding: 8px;
   background: white;
   border: 1px solid #d7d7d7;
@@ -782,15 +738,15 @@ export default defineNuxtComponent({
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 240px;
+  max-height: 260px;
   overflow: auto;
 }
 
 .oj-widget-picker-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 10px;
+  padding: 7px 8px;
   border-radius: 8px;
   cursor: pointer;
 }
@@ -799,7 +755,6 @@ export default defineNuxtComponent({
   background: #f2f4f7;
 }
 
-/* ✅ 팝업 아이콘 스타일 복구 */
 .oj-widget-picker-icon {
   width: 22px;
   height: 22px;
@@ -821,7 +776,6 @@ export default defineNuxtComponent({
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  flex: 0 0 auto;
 }
 
 .oj-widget-picker-label {
