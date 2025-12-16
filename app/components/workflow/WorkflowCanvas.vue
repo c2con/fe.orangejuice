@@ -157,6 +157,9 @@ export default defineNuxtComponent({
     const getSelectedEdgesRaw = vf.getSelectedEdges
     const removeEdgesRaw = vf.removeEdges
 
+    const getSelectedNodesRaw = vf.getSelectedNodes
+    const removeNodesRaw = vf.removeNodes
+
     // =========================================================
     // DOM refs & 좌표 변환
     // =========================================================
@@ -616,6 +619,84 @@ export default defineNuxtComponent({
       affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
     }
 
+// =========================================================
+// Delete / Backspace (선택된 node 삭제 + 연결 edge + 핸들 정리)
+// =========================================================
+    const readSelectedNodes = (): any[] => {
+      if (typeof getSelectedNodesRaw === 'function') {
+        try { return getSelectedNodesRaw() || [] } catch { return [] }
+      }
+      if (getSelectedNodesRaw && typeof getSelectedNodesRaw === 'object' && 'value' in getSelectedNodesRaw) {
+        return (getSelectedNodesRaw.value as any[]) || []
+      }
+      return []
+    }
+
+    const removeNodesSafe = (nodeIds: string[]) => {
+      if (!nodeIds.length) return
+      if (typeof removeNodesRaw === 'function') {
+        removeNodesRaw(nodeIds)
+        return
+      }
+      if (removeNodesRaw && typeof removeNodesRaw === 'object' && typeof removeNodesRaw.value === 'function') {
+        removeNodesRaw.value(nodeIds)
+      }
+    }
+    // ✅ 노드 삭제 시, 해당 노드에 연결된 edge를 "기존 edge 삭제 방식"으로 제거
+    const deleteEdgesConnectedToNodes = async (nodeIdSet: Set<string>) => {
+      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
+
+      const storeIds = new Set<string>()
+      const affectedNodeIds = new Set<string>()
+      const flowEdgeIds: string[] = []
+
+      edges.forEach((e) => {
+        const hit = nodeIdSet.has(e.source) || nodeIdSet.has(e.target)
+        if (!hit) return
+
+        storeIds.add(e.id)
+        // VueFlow edge id는 보통 "e-<storeId>" 형태(현재 코드도 그 전제를 씀)
+        flowEdgeIds.push(`e-${e.id}`)
+
+        // 반대편 노드 핸들 정리 대상(삭제되는 노드는 굳이 갱신할 필요 없음)
+        if (!nodeIdSet.has(e.source)) affectedNodeIds.add(e.source)
+        if (!nodeIdSet.has(e.target)) affectedNodeIds.add(e.target)
+      })
+
+      if (!storeIds.size) return
+
+      // ✅ 기존 edge 삭제 흐름과 동일
+      removeEdgesSafe(flowEdgeIds)
+      workflowStore.edges = edges.filter((x) => !storeIds.has(x.id)) as any
+
+      await nextTick()
+      affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
+    }
+
+
+    const deleteSelectedNodes = async () => {
+      const selected = readSelectedNodes()
+      if (!selected.length) return
+
+      const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
+
+      const nodeIdSet = new Set<string>()
+      selected.forEach((fn: any) => {
+        const nid = String(fn.id || '')
+        if (nid) nodeIdSet.add(nid)
+      })
+      if (!nodeIdSet.size) return
+
+      // ✅ 1) 연결된 edge를 "기존 edge 삭제 방식"으로 먼저 제거 (반대편 핸들 정리됨)
+      await deleteEdgesConnectedToNodes(nodeIdSet)
+
+      // ✅ 2) 그 다음 노드 제거
+      removeNodesSafe([...nodeIdSet])
+      workflowStore.nodes = nodes.filter((x) => !nodeIdSet.has(x.id)) as any
+
+      await nextTick()
+    }
+
     const onKeyDown = (e: KeyboardEvent) => {
       const isDeleteKey =
           e.key === 'Delete' ||
@@ -633,13 +714,22 @@ export default defineNuxtComponent({
 
       if (isTyping) return
 
-      const selected = readSelectedEdges()
-      if (!selected.length) return
+      const selectedNodes = readSelectedNodes()
+      if (selectedNodes.length) {
+        e.preventDefault()
+        e.stopPropagation()
+        void deleteSelectedNodes()
+        return
+      }
 
-      e.preventDefault()
-      e.stopPropagation()
-
-      void deleteSelectedEdges()
+      // ✅ 2) Node 없으면 Edge 삭제
+      const selectedEdges = readSelectedEdges()
+      if (selectedEdges.length) {
+        e.preventDefault()
+        e.stopPropagation()
+        void deleteSelectedEdges()
+        return
+      }
     }
 
     // =========================================================
