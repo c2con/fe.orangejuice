@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useHistoryStore } from '@/stores/historyStore'
+import { useHistoryStore } from '~/stores/historyStore'
 
 defineEmits<{ (e: 'close'): void }>()
 
