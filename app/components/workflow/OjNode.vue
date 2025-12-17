@@ -332,7 +332,8 @@ const onOutputArcPointerDown = (e: PointerEvent) => {
   const handleId = list[idx]?.id
   if (!handleId) return
 
-  outputHandleDownMap.value.get(handleId)?.(toMouseEvent(e))
+  if (!(e.currentTarget instanceof Element)) return
+  outputHandleDownMap.value.get(handleId)?.(e)
 }
 
 const onImageError = (e: Event) => {

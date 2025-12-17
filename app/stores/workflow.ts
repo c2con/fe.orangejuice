@@ -25,6 +25,7 @@ export interface WorkflowEdge {
     target: string
     sourceChannel: string | null
     targetChannel: string | null
+    enable: boolean
     label: string | null
 }
 
@@ -220,6 +221,7 @@ export const useWorkflowStore = defineStore('workflow', {
                         target: String(e.target),
                         sourceChannel: e.sourceChannel ?? null,
                         targetChannel: e.targetChannel ?? null,
+                        enable: e.enable ?? true,
                         label: e.label ?? null,
                     }),
                 )
@@ -240,6 +242,9 @@ export const useWorkflowStore = defineStore('workflow', {
                 }
             ;(this.nodes as any[]).push(node)
             return id
+        },
+        addEdge(edge: WorkflowEdge) {
+            this.edges.push(edge)
         },
 
     },

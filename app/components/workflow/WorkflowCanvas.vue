@@ -8,77 +8,96 @@
       @drop="handleDrop"
   >
     <ClientOnly>
-      <VueFlow
-          class="oj-workflow-canvas"
-          :nodes="flowNodes"
-          :edges="flowEdges"
-          :node-types="nodeTypes"
-          :edge-types="edgeTypes"
-          :elements-selectable="true"
-          :edges-updatable="false"
-          @pane-ready="handlePaneReady"
-          @node-drag="handleNodeDrag"
-          @connect-start="handleConnectStart"
-          @connect="handleConnect"
-          @connect-end="handleConnectEnd"
-          @pane-context-menu="handlePaneContextMenu"
-          @pane-click="handlePaneClick"
-      >
-        <Background
-            pattern-color="#888"
-            :gap="20"
-            :size="1.5"
-        />
-      </VueFlow>
-
-      <!-- Widget Picker -->
-      <div
-          v-if="widgetPicker.visible"
-          ref="pickerRef"
-          class="oj-widget-picker"
-          :style="{ left: widgetPicker.screenX + 'px', top: widgetPicker.screenY + 'px' }"
-          @mousedown.stop
-          @contextmenu.prevent
-      >
-        <input
-            ref="searchInputRef"
-            v-model="searchText"
-            class="oj-widget-picker-search"
-            placeholder="Search..."
-        />
-
-        <ul class="oj-widget-picker-list">
-          <li
-              v-for="w in filteredWidgets"
-              :key="w.id"
-              class="oj-widget-picker-item"
-              @click="createNodeFromWidget(w)"
+      <div class="oj-workflow-layout">
+        <!-- =========================
+             CANVAS AREA
+        ========================== -->
+        <div class="oj-canvas-area">
+          <VueFlow
+              class="oj-workflow-canvas"
+              :nodes="flowNodes"
+              :edges="flowEdges"
+              :node-types="nodeTypes"
+              :edge-types="edgeTypes"
+              :elements-selectable="true"
+              :edges-updatable="false"
+              @pane-ready="handlePaneReady"
+              @node-drag="handleNodeDrag"
+              @connect-start="handleConnectStart"
+              @connect="handleConnect"
+              @connect-end="handleConnectEnd"
+              @pane-context-menu="handlePaneContextMenu"
+              @pane-click="handlePaneClick"
+              @node-drag-start="onNodeDragStart"
+              @node-drag-stop="onNodeDragStop"
           >
-            <span class="oj-widget-picker-icon">
-              <img
-                  v-if="w.icon"
-                  :src="w.icon"
-                  alt=""
-                  draggable="false"
-              />
-              <span
-                  v-else
-                  class="oj-widget-picker-dot"
-                  :style="{ backgroundColor: w.categoryColor }"
-              />
-            </span>
+            <Background pattern-color="#888" :gap="20" :size="1.5" />
+          </VueFlow>
 
-            <span class="oj-widget-picker-label">
-              {{ w.label }}
-            </span>
-          </li>
-        </ul>
+          <!-- 우상단 History 토글 버튼 -->
+          <button
+              v-if="!isHistoryOpen"
+              type="button"
+              class="oj-history-toggle"
+              title="History"
+              @click="isHistoryOpen = true"
+          >
+            <img :src="historyIconUrl" class="oj-history-icon-img" alt="" draggable="false" />
+          </button>
+
+          <!-- Widget Picker -->
+          <div
+              v-if="widgetPicker.visible"
+              ref="pickerRef"
+              class="oj-widget-picker"
+              :style="{ left: widgetPicker.screenX + 'px', top: widgetPicker.screenY + 'px' }"
+              @mousedown.stop
+              @contextmenu.prevent
+          >
+            <input
+                ref="searchInputRef"
+                v-model="searchText"
+                class="oj-widget-picker-search"
+                placeholder="Search..."
+            />
+
+            <ul class="oj-widget-picker-list">
+              <li
+                  v-for="w in filteredWidgets"
+                  :key="w.id"
+                  class="oj-widget-picker-item"
+                  @click="createNodeFromWidget(w)"
+              >
+                <span class="oj-widget-picker-icon">
+                  <img v-if="w.icon" :src="w.icon" alt="" draggable="false" />
+                  <span
+                      v-else
+                      class="oj-widget-picker-dot"
+                      :style="{ backgroundColor: w.categoryColor }"
+                  />
+                </span>
+
+                <span class="oj-widget-picker-label">
+                  {{ w.label }}
+                </span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- =========================
+             RIGHT HISTORY PANEL
+        ========================== -->
+        <div v-if="isHistoryOpen" class="oj-right-panel" @mousedown.stop>
+          <HistoryPanel @close="isHistoryOpen = false" />
+        </div>
       </div>
     </ClientOnly>
   </div>
 </template>
 
 <script lang="ts">
+import historyIconUrl from '@/assets/icons/history.svg?url'
 import { defineNuxtComponent } from '#app'
 import {
   computed,
@@ -105,7 +124,10 @@ import '@vue-flow/core/dist/theme-default.css'
 
 import OjNode from '@/components/workflow/OjNode.vue'
 import OjEdge from '@/components/workflow/OjEdge.vue'
+import HistoryPanel from '@/components/workflow/HistoryPanel.vue'
+
 import { useWorkflowStore } from '@/stores/workflow'
+import { useHistoryStore, makeAddNodeCommand, makeAddEdgeCommand, makeDeleteEdgesCommand, makeDeleteNodesBatchCommand } from '@/stores/historyStore'
 
 import {
   getWidgetDef,
@@ -135,17 +157,23 @@ type StoreEdge = {
   id: string
   source: string
   target: string
-  sourceChannel?: string | null
-  targetChannel?: string | null
-  enable?: boolean
+  sourceChannel: string | null
+  targetChannel: string | null
+  enable: boolean
+  label: string | null
 }
 
-type PickerWidget = WidgetDefinition & { categoryColor: string }
+type PickerWidget = WidgetDefinition & { id: string; categoryColor: string }
 
 export default defineNuxtComponent({
-  components: { VueFlow, Background },
-  setup() {
+  components: { VueFlow, Background, HistoryPanel },
+  setup: function () {
     const workflowStore = useWorkflowStore()
+    const historyStore = useHistoryStore()
+
+    // 우측 패널 열림/닫힘 (원래 지침은 uiStore 권장인데, 일단 바로 동작하는 형태로 local 처리)
+    const isHistoryOpen = ref(false)
+    const didConnectInGesture = ref(false)
 
     const vf: any = useVueFlow()
 
@@ -173,7 +201,7 @@ export default defineNuxtComponent({
 
     const toFlowPosFromClient = (clientX: number, clientY: number) => {
       const rect = getCanvasRect()
-      if (!rect) return project({ x: clientX, y: clientY })
+      if (!rect) return project({x: clientX, y: clientY})
       return project({
         x: clientX - rect.left,
         y: clientY - rect.top,
@@ -184,7 +212,16 @@ export default defineNuxtComponent({
 
     const ensureNodeInternals = async (nodeId: string) => {
       await nextTick()
-      requestAnimationFrame(() => updateNodeInternals([nodeId]))
+
+      if (typeof updateNodeInternals !== 'function') return
+
+      requestAnimationFrame(() => {
+        try {
+          updateNodeInternals([nodeId])
+        } catch (e) {
+          console.warn('[ensureNodeInternals] failed:', e)
+        }
+      })
     }
 
     const safeScore = (
@@ -199,9 +236,10 @@ export default defineNuxtComponent({
     // =========================================================
     // Node / Edge Types
     // =========================================================
-    const nodeTypes: NodeTypesObject = { 'oj-node': markRaw(OjNode) as any }
-    const edgeTypes: EdgeTypesObject = { 'oj-edge': markRaw(OjEdge) as any }
+    const nodeTypes: NodeTypesObject = {'oj-node': markRaw(OjNode) as any}
+    const edgeTypes: EdgeTypesObject = {'oj-edge': markRaw(OjEdge) as any}
 
+    const dragStartPos = new Map<string, { x: number; y: number }>()
     // =========================================================
     // Widget Picker
     // =========================================================
@@ -218,8 +256,9 @@ export default defineNuxtComponent({
     const searchText = ref('')
 
     const allWidgets = computed<PickerWidget[]>(() => {
-      return Object.values(WIDGET_DEFINITIONS).map((w) => ({
-        ...w,
+      return Object.entries(WIDGET_DEFINITIONS).map(([id, w]) => ({
+        ...(w as any),
+        id,
         categoryColor: getCategoryColor((w as any).categoryId),
       }))
     })
@@ -249,7 +288,7 @@ export default defineNuxtComponent({
     }
 
     // =========================================================
-    // Node add
+    // Node add (History Command 경유)
     // =========================================================
     const createStoreNode = (widgetId: string, x: number, y: number): StoreNode => {
       const def = getWidgetDef(widgetId)
@@ -261,21 +300,91 @@ export default defineNuxtComponent({
         name: label,
         title: label,
         label,
-        position: { x, y },
+        position: {x, y},
         params: {},
       }
     }
 
     const addNodeAtFlowPos = async (widgetId: string, x: number, y: number) => {
       const node = createStoreNode(widgetId, x, y)
-      ;(workflowStore.nodes as unknown as StoreNode[]).push(node)
-      await ensureNodeInternals(node.id)
+
+      // 0) 상태 점검
+      console.log('[addNode] before', {
+        widgetId,
+        x,
+        y,
+        nodesLen: workflowStore.nodes?.length,
+        edgesLen: workflowStore.edges?.length,
+      })
+
+      // 1) history execute 시도
+      const beforeLen = workflowStore.nodes?.length ?? 0
+      try {
+        console.log('[HISTORY] before execute, undo len =', historyStore.undoStack.length)
+        historyStore.execute(makeAddNodeCommand(node))
+        console.log('[HISTORY] after execute, undo len =', historyStore.undoStack.length)
+      } catch (e) {
+        console.error('[addNode] history execute failed:', e)
+      }
+
+      // 2) history가 실제로 nodes를 늘렸는지 확인
+      const afterLen = workflowStore.nodes?.length ?? 0
+      console.log('[addNode] after execute', {beforeLen, afterLen})
+
+      // 3) ✅ 안 늘었으면 fallback으로 직접 push (무조건 화면에 나오게)
+      if (afterLen === beforeLen) {
+        console.warn('[addNode] fallback push node (history did not mutate store)')
+        ;(workflowStore.nodes ??= [] as any)
+        workflowStore.nodes.push(node as any)
+      }
+
+      await nextTick()
+
+      // 4) internals 업데이트는 "가능할 때만"
+      try {
+        await ensureNodeInternals(node.id)
+      } catch (e) {
+        console.warn('[addNode] ensureNodeInternals failed:', e)
+      }
+
+      console.log('[addNode] final nodesLen=', workflowStore.nodes.length)
       return node.id
     }
 
     const createNodeFromWidget = async (w: PickerWidget) => {
-      await addNodeAtFlowPos(w.id, widgetPicker.anchorFlowX, widgetPicker.anchorFlowY)
-      closeWidgetPicker()
+      if (!w?.id) return
+
+      try {
+        console.log('[picker] select', w.id, widgetPicker.anchorFlowX, widgetPicker.anchorFlowY)
+
+        await addNodeAtFlowPos(w.id, widgetPicker.anchorFlowX, widgetPicker.anchorFlowY)
+
+        console.log('[picker] added. nodes=', workflowStore.nodes.length)
+        closeWidgetPicker() // ✅ 성공했을 때만 닫기
+      } catch (err) {
+        console.error('[picker] add node failed:', err)
+        // 실패 시에는 닫지 말고 그대로 두는게 UX도 좋음
+      }
+    }
+
+    const onNodeDragStart = (e: any) => {
+      const id = String(e?.node?.id ?? '')
+      if (!id) return
+      dragStartPos.set(id, { x: e.node.position.x, y: e.node.position.y })
+    }
+
+    const onNodeDragStop = (e: any) => {
+      const id = String(e?.node?.id ?? '')
+      if (!id) return
+
+      const from = dragStartPos.get(id)
+      const to = { x: e.node.position.x, y: e.node.position.y }
+      dragStartPos.delete(id)
+
+      if (!from) return
+      if (from.x === to.x && from.y === to.y) return // 움직임 없으면 기록 안 함
+
+      historyStore.execute(makeMoveNodeCommand(id, from, to))
     }
 
     const handleDrop = async (e: DragEvent) => {
@@ -324,26 +433,30 @@ export default defineNuxtComponent({
           outgoing.sort((a, b) => safeScore(center, centerMap[a.target], false) - safeScore(center, centerMap[b.target], false))
         }
 
+        const defaultIn = (defInputs[0] ?? 'Data') as string
+        const defaultOut = (defOutputs[0] ?? 'Data') as string
+
         const inputsArray =
             incoming.length > 0
                 ? incoming.map((e, idx) => {
-                  const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
-                  return { id: `${ch}#${idx}`, name: ch }
+                  const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : defaultIn
+                  return {id: `${ch}#${idx}`, name: ch}
                 })
-                : []
+                : (defInputs.length > 0 ? [{id: `${defaultIn}#0`, name: defaultIn}] : [])
 
         const outputsArray =
             outgoing.length > 0
                 ? outgoing.map((e, idx) => {
-                  const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
-                  return { id: `${ch}#${idx}`, name: ch }
+                  const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : defaultOut
+                  return {id: `${ch}#${idx}`, name: ch}
                 })
-                : []
+                : (defOutputs.length > 0 ? [{id: `${defaultOut}#0`, name: defaultOut}] : [])
+
 
         return {
           id: n.id,
           type: 'oj-node',
-          position: { x: n.position.x, y: n.position.y },
+          position: {x: n.position.x, y: n.position.y},
           data: {
             label: n.title || n.name,
             widgetId: n.widgetType,
@@ -412,7 +525,7 @@ export default defineNuxtComponent({
       })
 
       return edges.map((e) => {
-        const enabled = e.enable !== false
+        const enabled = e.enable
         const label = buildEdgeLabel(e)
 
         const baseSource = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
@@ -441,7 +554,7 @@ export default defineNuxtComponent({
     })
 
     // =========================================================
-    // Node Drag
+    // Node Drag (현재는 즉시 반영, 추후 node/move 커맨드로 분리 가능)
     // =========================================================
     const handleNodeDrag = (evt: NodeDragEvent) => {
       const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
@@ -463,35 +576,55 @@ export default defineNuxtComponent({
 
     const handleConnectStart = (params: any) => {
       connectingFrom.value = params
+      didConnectInGesture.value = false
     }
 
     const handleConnect = (params: any) => {
+      console.log('[edge connect]', params.sourceHandle, '->', params.targetHandle)
       const sId = String(params.source || '')
       const tId = String(params.target || '')
       if (!sId || !tId) return
 
+      // 중복 연결 방지(있다면 유지)
       if (hasSameConnection(sId, tId)) return
 
       const newEdge: StoreEdge = {
-            id: `edge_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-            source: sId,
-            target: tId,
-            sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
-            targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
-            enable: false,
-          }
+        id: `edge_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        source: sId,
+        target: tId,
+        sourceChannel: stripHandleIndex(params.sourceHandle) ?? 'Data',
+        targetChannel: stripHandleIndex(params.targetHandle) ?? 'Data',
+        enable: false,
+        label: null,
+      }
 
-      ;(workflowStore.edges as unknown as StoreEdge[]).push(newEdge)
+      // ✅ 직접 push 금지
+      // workflowStore.edges.push(newEdge)  <-- 있으면 제거
 
+      // ✅ 히스토리로만 추가
+      historyStore.execute(makeAddEdgeCommand(newEdge))
+
+      didConnectInGesture.value = true
       void ensureNodeInternals(sId)
       void ensureNodeInternals(tId)
     }
 
+
+
     const handleConnectEnd = (evt: any) => {
       const mouse = evt?.event as MouseEvent | undefined
+
+      // ✅ 연결 성공이면 팝업 띄우지 않음
+      if (didConnectInGesture.value) {
+        connectingFrom.value = null
+        return
+      }
+
+      // ✅ 연결 실패(빈 공간 드롭)일 때만 팝업
       if (mouse) openWidgetPickerAt(mouse.clientX, mouse.clientY)
       connectingFrom.value = null
     }
+
 
     // =========================================================
     // Pane events
@@ -540,11 +673,11 @@ export default defineNuxtComponent({
       const cx = minX + rawW / 2
       const cy = minY + rawH / 2
 
-      await Promise.resolve(setViewport({
+      await setViewport({
         x: viewW / 2 - cx * zoom,
         y: viewH / 2 - cy * zoom,
         zoom,
-      }))
+      })
 
       hasViewportFitted.value = true
     }
@@ -565,11 +698,15 @@ export default defineNuxtComponent({
     )
 
     // =========================================================
-    // Delete / Backspace (선택된 edge 삭제 + 핸들 즉시 정리)
+    // Delete helpers (VueFlow selection 정리)
     // =========================================================
     const readSelectedEdges = (): any[] => {
       if (typeof getSelectedEdgesRaw === 'function') {
-        try { return getSelectedEdgesRaw() || [] } catch { return [] }
+        try {
+          return getSelectedEdgesRaw() || []
+        } catch {
+          return []
+        }
       }
       if (getSelectedEdgesRaw && typeof getSelectedEdgesRaw === 'object' && 'value' in getSelectedEdgesRaw) {
         return (getSelectedEdgesRaw.value as any[]) || []
@@ -588,43 +725,13 @@ export default defineNuxtComponent({
       }
     }
 
-    const deleteSelectedEdges = async () => {
-      const selected = readSelectedEdges()
-      if (!selected.length) return
-
-      const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
-      const storeIds = new Set<string>()
-      const affectedNodeIds = new Set<string>()
-      const flowEdgeIds: string[] = []
-
-      selected.forEach((fe: any) => {
-        const flowId = String(fe.id || '')
-        if (!flowId) return
-        flowEdgeIds.push(flowId)
-
-        const storeId = flowId.startsWith('e-') ? flowId.slice(2) : flowId
-        const edge = edges.find((e) => e.id === storeId)
-        if (!edge) return
-
-        storeIds.add(storeId)
-        affectedNodeIds.add(edge.source)
-        affectedNodeIds.add(edge.target)
-      })
-
-      removeEdgesSafe(flowEdgeIds)
-
-      workflowStore.edges = edges.filter((x) => !storeIds.has(x.id)) as any
-
-      await nextTick()
-      affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
-    }
-
-// =========================================================
-// Delete / Backspace (선택된 node 삭제 + 연결 edge + 핸들 정리)
-// =========================================================
     const readSelectedNodes = (): any[] => {
       if (typeof getSelectedNodesRaw === 'function') {
-        try { return getSelectedNodesRaw() || [] } catch { return [] }
+        try {
+          return getSelectedNodesRaw() || []
+        } catch {
+          return []
+        }
       }
       if (getSelectedNodesRaw && typeof getSelectedNodesRaw === 'object' && 'value' in getSelectedNodesRaw) {
         return (getSelectedNodesRaw.value as any[]) || []
@@ -642,61 +749,69 @@ export default defineNuxtComponent({
         removeNodesRaw.value(nodeIds)
       }
     }
-    // ✅ 노드 삭제 시, 해당 노드에 연결된 edge를 "기존 edge 삭제 방식"으로 제거
-    const deleteEdgesConnectedToNodes = async (nodeIdSet: Set<string>) => {
+
+    // =========================================================
+    // Delete Selected Edges (History Command 경유)
+    // =========================================================
+    const deleteSelectedEdges = async () => {
+      const selected = readSelectedEdges()
+      if (!selected.length) return
+
       const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
-
-      const storeIds = new Set<string>()
-      const affectedNodeIds = new Set<string>()
+      const storeEdgeIds: string[] = []
       const flowEdgeIds: string[] = []
+      const affectedNodeIds = new Set<string>()
 
-      edges.forEach((e) => {
-        const hit = nodeIdSet.has(e.source) || nodeIdSet.has(e.target)
-        if (!hit) return
+      selected.forEach((fe: any) => {
+        const flowId = String(fe.id || '')
+        if (!flowId) return
+        flowEdgeIds.push(flowId)
 
-        storeIds.add(e.id)
-        // VueFlow edge id는 보통 "e-<storeId>" 형태(현재 코드도 그 전제를 씀)
-        flowEdgeIds.push(`e-${e.id}`)
+        const storeId = flowId.startsWith('e-') ? flowId.slice(2) : flowId
+        const edge = edges.find((e) => e.id === storeId)
+        if (!edge) return
 
-        // 반대편 노드 핸들 정리 대상(삭제되는 노드는 굳이 갱신할 필요 없음)
-        if (!nodeIdSet.has(e.source)) affectedNodeIds.add(e.source)
-        if (!nodeIdSet.has(e.target)) affectedNodeIds.add(e.target)
+        storeEdgeIds.push(storeId)
+        affectedNodeIds.add(edge.source)
+        affectedNodeIds.add(edge.target)
       })
 
-      if (!storeIds.size) return
-
-      // ✅ 기존 edge 삭제 흐름과 동일
+      // VueFlow selection 먼저 제거
       removeEdgesSafe(flowEdgeIds)
-      workflowStore.edges = edges.filter((x) => !storeIds.has(x.id)) as any
+
+      // 스토어 변경은 History 커맨드로
+      historyStore.execute(makeDeleteEdgesCommand(storeEdgeIds))
 
       await nextTick()
       affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
     }
 
-
+    // =========================================================
+    // Delete Selected Nodes (batch: 연결 edge 삭제 + node 삭제)
+    // =========================================================
     const deleteSelectedNodes = async () => {
       const selected = readSelectedNodes()
       if (!selected.length) return
 
-      const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
-
-      const nodeIdSet = new Set<string>()
+      const nodeIds: string[] = []
       selected.forEach((fn: any) => {
         const nid = String(fn.id || '')
-        if (nid) nodeIdSet.add(nid)
+        if (nid) nodeIds.push(nid)
       })
-      if (!nodeIdSet.size) return
+      if (!nodeIds.length) return
 
-      // ✅ 1) 연결된 edge를 "기존 edge 삭제 방식"으로 먼저 제거 (반대편 핸들 정리됨)
-      await deleteEdgesConnectedToNodes(nodeIdSet)
+      // VueFlow selection 먼저 제거
+      removeNodesSafe(nodeIds)
 
-      // ✅ 2) 그 다음 노드 제거
-      removeNodesSafe([...nodeIdSet])
-      workflowStore.nodes = nodes.filter((x) => !nodeIdSet.has(x.id)) as any
+      // batch 커맨드 실행 (edge+node 동시)
+      historyStore.execute(makeDeleteNodesBatchCommand(nodeIds))
 
       await nextTick()
     }
 
+    // =========================================================
+    // Delete / Backspace
+    // =========================================================
     const onKeyDown = (e: KeyboardEvent) => {
       const isDeleteKey =
           e.key === 'Delete' ||
@@ -722,7 +837,6 @@ export default defineNuxtComponent({
         return
       }
 
-      // ✅ 2) Node 없으면 Edge 삭제
       const selectedEdges = readSelectedEdges()
       if (selectedEdges.length) {
         e.preventDefault()
@@ -781,95 +895,15 @@ export default defineNuxtComponent({
       createNodeFromWidget,
 
       onKeyDown,
+
+      onNodeDragStart,
+      onNodeDragStop,
+
+      isHistoryOpen,
+      historyIconUrl,
     }
   },
 })
 </script>
+<style src="@/assets/WorkflowCanvas.css"></style>
 
-<style scoped>
-.oj-workflow-wrapper {
-  width: 100%;
-  height: 100%;
-  outline: none;
-  min-width: 0;
-}
-
-.oj-workflow-canvas {
-  width: 100%;
-  height: 100%;
-  background: #f8fafc;
-}
-
-/* picker */
-.oj-widget-picker {
-  position: fixed;
-  z-index: 1000;
-  min-width: 280px;
-  padding: 8px;
-  background: white;
-  border: 1px solid #d7d7d7;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.oj-widget-picker-search {
-  width: 100%;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid #cfcfcf;
-  border-radius: 8px;
-  outline: none;
-}
-
-.oj-widget-picker-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 260px;
-  overflow: auto;
-}
-
-.oj-widget-picker-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.oj-widget-picker-item:hover {
-  background: #f2f4f7;
-}
-
-.oj-widget-picker-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  background: #f6f6f6;
-  border: 1px solid #e6e6e6;
-}
-
-.oj-widget-picker-icon img {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-}
-
-.oj-widget-picker-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-}
-
-.oj-widget-picker-label {
-  font-size: 13px;
-  color: #222;
-}
-</style>
