@@ -246,6 +246,14 @@ export const useWorkflowStore = defineStore('workflow', {
         addEdge(edge: WorkflowEdge) {
             this.edges.push(edge)
         },
+        clearWorkflow() {
+            this.nodes = [];
+            this.edges = [];
+            this.id = null;
+            this.name = '';
+            // 필요 시 선택된 파일/폴더 정보도 초기화
+            this.selectedWorkspaceFileId = null;
+        },
 
     },
 })

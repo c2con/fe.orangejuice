@@ -54,8 +54,17 @@
 </template>
 
 <script>
+import { useWorkflowStore } from '@/stores/workflow';
+import { useHistoryStore } from '@/stores/historyStore';
+
 export default {
   name: 'TopMenuBar',
+  setup() {
+    // Pinia 스토어 주입
+    const workflowStore = useWorkflowStore();
+    const historyStore = useHistoryStore();
+    return { workflowStore, historyStore };
+  },
   data() {
     return {
       openMenuId: null,
@@ -145,9 +154,22 @@ export default {
       this.openMenuId = null;
     },
     onMenuItemClick(menu, item) {
+      if (item.action === 'file:new' || item.action === 'file:close') {
+        this.handleFileClose();
+      }
       // 나중에 실제 동작 붙일 자리
       console.log('[MENU]', menu.id, '→', item.action);
       this.closeMenus();
+    },
+    handleFileClose() {
+      if (confirm('현재 작업 중인 워크플로우를 닫으시겠습니까? 저장하지 않은 변경 사항은 삭제됩니다.')) {
+        // 1. 워크플로우 데이터 초기화
+        this.workflowStore.clearWorkflow();
+        // 2. 히스토리(Undo/Redo) 초기화
+        this.historyStore.resetHistory();
+        // 3. 로컬 스토리지 동기화 (useWorkflowCanvas의 watch가 처리하지만 명시적으로 삭제 가능)
+        localStorage.removeItem('oj-workflow-state');
+      }
     }
   }
 };

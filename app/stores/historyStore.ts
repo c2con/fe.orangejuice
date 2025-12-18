@@ -579,5 +579,10 @@ export const useHistoryStore = defineStore('history', {
             this.undoStack = undoSer.map(deserialize)
             this.redoStack = redoSer.map(deserialize)
         },
+        resetHistory() {
+            this.undoStack = [];
+            this.redoStack = [];
+            this.baseline = null;
+        }
     },
 })
