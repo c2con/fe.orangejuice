@@ -361,7 +361,8 @@ const onImageError = (e: Event) => {
 
 /* 연결이 없으면 점선 */
 .oj-arc-path.is-dashed {
-  stroke-dasharray: 4 4;
+  stroke-dasharray: 4 4 !important; /* 선 4px, 공백 4px 반복 */
+  stroke-opacity: 0.5 !important;   /* 점선일 때는 약간 더 투명하게 처리 */
 }
 
 /* ✅ 아크 전체 hit-area (투명) */

@@ -335,21 +335,19 @@ export function useWorkflowCanvas() {
             const defaultIn = (defInputs[0] ?? 'Data') as string
             const defaultOut = (defOutputs[0] ?? 'Data') as string
 
-            const inputsArray =
-                incoming.length > 0
-                    ? incoming.map((e, idx) => {
-                        const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : defaultIn
-                        return {id: `${ch}#${idx}`, name: ch}
-                    })
-                    : (defInputs.length > 0 ? [{id: `${defaultIn}#0`, name: defaultIn}] : [])
+            const inputsArray = incoming.length > 0
+                ? incoming.map((e, idx) => {
+                    const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : defaultIn
+                    return { id: `${ch}#${idx}`, name: ch }
+                })
+                : [] // 👈 연결이 없으면 반드시 빈 배열!
 
-            const outputsArray =
-                outgoing.length > 0
-                    ? outgoing.map((e, idx) => {
-                        const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : defaultOut
-                        return {id: `${ch}#${idx}`, name: ch}
-                    })
-                    : (defOutputs.length > 0 ? [{id: `${defaultOut}#0`, name: defaultOut}] : [])
+            const outputsArray = outgoing.length > 0
+                ? outgoing.map((e, idx) => {
+                    const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : defaultOut
+                    return { id: `${ch}#${idx}`, name: ch }
+                })
+                : [] // 👈 연결이 없으면 반드시 빈 배열!
 
 
             return {
@@ -387,11 +385,13 @@ export function useWorkflowCanvas() {
     // =========================================================
     // Flow Edges (OjEdge 사용)
     // =========================================================
+    // useWorkflowCanvas.ts 내 flowEdges 로직
     const flowEdges = computed<FlowEdge[]>(() => {
         const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
         const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
         if (!edges.length) return []
 
+        // 1. 모든 노드의 중심 좌표 맵 생성
         const centerMap: Record<string, { x: number; y: number }> = {}
         nodes.forEach((n) => {
             centerMap[n.id] = {
@@ -400,38 +400,35 @@ export function useWorkflowCanvas() {
             }
         })
 
-        // 각 노드 기준으로 정렬 후 #idx 부여
         const sourceHandleMap: Record<string, string> = {}
         const targetHandleMap: Record<string, string> = {}
 
+        // 2. 각 노드별로 연결된 엣지들을 각도 순(safeScore)으로 재정렬하여 인덱스 부여
         nodes.forEach((n) => {
             const center = centerMap[n.id]
             if (!center) return
 
+            // 출력(Source) 정렬 및 ID 할당
             const outEdges = edges.filter((e) => e.source === n.id)
             outEdges.sort((a, b) => safeScore(center, centerMap[a.target], false) - safeScore(center, centerMap[b.target], false))
             outEdges.forEach((e, idx) => {
-                const ch = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
+                const ch = (e.sourceChannel?.trim()) || 'Data'
                 sourceHandleMap[e.id] = `${ch}#${idx}`
             })
 
+            // 입력(Target) 정렬 및 ID 할당
             const inEdges = edges.filter((e) => e.target === n.id)
             inEdges.sort((a, b) => safeScore(center, centerMap[a.source], true) - safeScore(center, centerMap[b.source], true))
             inEdges.forEach((e, idx) => {
-                const ch = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
+                const ch = (e.targetChannel?.trim()) || 'Data'
                 targetHandleMap[e.id] = `${ch}#${idx}`
             })
         })
 
+        // 3. 계산된 고정 ID를 사용하여 FlowEdge 생성
         return edges.map((e) => {
-            const enabled = e.enable
-            const label = buildEdgeLabel(e)
-
-            const baseSource = (e.sourceChannel && String(e.sourceChannel).trim() !== '') ? String(e.sourceChannel) : 'Data'
-            const baseTarget = (e.targetChannel && String(e.targetChannel).trim() !== '') ? String(e.targetChannel) : 'Data'
-
-            const sHandle = sourceHandleMap[e.id] ?? `${baseSource}#0`
-            const tHandle = targetHandleMap[e.id] ?? `${baseTarget}#0`
+            const sHandle = sourceHandleMap[e.id] || `${e.sourceChannel || 'Data'}#0`
+            const tHandle = targetHandleMap[e.id] || `${e.targetChannel || 'Data'}#0`
 
             return {
                 id: `e-${e.id}`,
@@ -439,14 +436,10 @@ export function useWorkflowCanvas() {
                 target: e.target,
                 sourceHandle: sHandle,
                 targetHandle: tHandle,
-
-                // ✅ 커스텀 edge로 라벨(textPath) 렌더
                 type: 'oj-edge',
-
-                // ✅ OjEdge가 읽는 data
                 data: {
-                    label,
-                    enabled,
+                    label: buildEdgeLabel(e),
+                    enabled: e.enable,
                 },
             } as FlowEdge
         })
@@ -586,6 +579,14 @@ export function useWorkflowCanvas() {
         nextTick(() => wrapperRef.value?.focus())
     }
 
+    const refreshAllNodes = async () => {
+        await nextTick() // 데이터가 DOM에 반영될 때까지 대기
+        const nodeIds = workflowStore.nodes.map((n) => n.id)
+        if (nodeIds.length > 0) {
+            updateNodeInternals(nodeIds)
+        }
+    }
+
     watch(
         () => flowNodes.value.length,
         async (n, o) => {
@@ -593,6 +594,7 @@ export function useWorkflowCanvas() {
                 hasViewportFitted.value = false
                 await fitAllNodesOnce()
             }
+            await refreshAllNodes()
         },
     )
 
@@ -677,6 +679,7 @@ export function useWorkflowCanvas() {
 
         // VueFlow selection 먼저 제거
         removeEdgesSafe(flowEdgeIds)
+        if (storeEdgeIds.length === 0) return
 
         // 스토어 변경은 History 커맨드로
         historyStore.execute(makeDeleteEdgesCommand(storeEdgeIds))
