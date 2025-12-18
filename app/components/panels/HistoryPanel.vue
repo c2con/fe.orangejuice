@@ -61,7 +61,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useHistoryStore } from '~/stores/historyStore'
+import { useHistoryStore } from '@/stores/historyStore'
 
 defineEmits<{ (e: 'close'): void }>()
 
@@ -107,41 +107,64 @@ const formatTime = (ts: number) => {
 }
 
 const labelOfCommand = (c: SerializedCommand) => {
-  if (c.type === 'node/add') {
-    const l = c.payload?.node?.label
+  if (c.type === 'node/add' || c.type === 'node/delete') {
+    const nodeLabel = c.payload?.node?.label
+    const nodesLabel = Array.isArray(c.payload?.nodes) && c.payload.nodes.length > 0
+        ? c.payload.nodes[0]?.label
+        : null;
+    const l = nodeLabel || nodesLabel
     return (typeof l === 'string' && l.trim() !== '') ? l : null
   }
 
-  if (c.type === 'edge/add') {
-    const l = c.payload?.edge?.label
-    if (typeof l === 'string' && l.trim() !== '') return l
+  if (c.type === 'edge/add' || c.type === 'edge/delete') {
+    const e = c.payload?.edge || (Array.isArray(c.payload?.edges) ? c.payload.edges[0] : null);
 
-    const sc = c.payload?.edge?.sourceChannel
-    const tc = c.payload?.edge?.targetChannel
+    // ✅ 엣지 객체가 없을 때를 대비한 방어 로직 추가
+    if (!e) {
+      if (c.type === 'edge/delete' && Array.isArray(c.payload?.edgeIds)) {
+        return `Edges (${c.payload.edgeIds.length})`; // 객체는 없어도 ID 개수라도 표시
+      }
+      return null;
+    }
 
-    return (
-        (typeof sc === 'string' && sc) || (typeof tc === 'string' && tc)
-            ? `${sc ?? ''}${sc && tc ? '→' : ''}${tc ?? ''}`.trim()
-            : null
-    )
+    if (typeof e.label === 'string' && e.label.trim() !== '') return e.label;
+
+    const sc = e.sourceChannel || 'Data';
+    const tc = e.targetChannel || 'Data';
+    const baseLabel = `${sc} → ${tc}`;
+
+    const count = Array.isArray(c.payload?.edges) ? c.payload.edges.length : 1;
+    return count > 1 ? `${baseLabel} 외 ${count - 1}개` : baseLabel;
   }
 
-  // ✅ node/move: payload.nodeId 기반으로 표시(최소 구현)
   if (c?.type === 'node/move') {
     const l = c?.payload?.label
     return typeof l === 'string' && l.trim() ? l.trim() : null
   }
 
+  if (c.type === 'batch') {
+    return c.payload?.label || 'Multiple Actions'
+  }
   return null
 }
 
 const titleOfCommand = (c: SerializedCommand) => {
   const type = String(c?.type ?? '')
-  const [kind, action] = type.split('/')
   const lbl = labelOfCommand(c)
 
-  if (kind && action && lbl) return `${kind}(${lbl})/${action}`
-  return type || '(unknown)'
+  // 1. Batch 타입인 경우 (예: batch(delete nodes))
+  if (type === 'batch') {
+    return lbl ? `batch(${lbl})` : 'batch'
+  }
+
+  // 2. 일반 타입 (node/add 등) 처리
+  const [kind, action] = type.split('/')
+  if (kind && action) {
+    return lbl ? `${kind}(${lbl})/${action}` : type
+  }
+
+  // 3. 기타 예외 케이스
+  return lbl ? `${type}(${lbl})` : (type || '(unknown)')
 }
 
 </script>

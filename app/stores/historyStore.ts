@@ -221,12 +221,16 @@ const cmdEdgeAdd = (
 
 
 const cmdEdgesDelete = (
+    edgeIds: string[],
     edgesSnapshot: WorkflowEdge[],
     fixed?: Pick<SerializedCommand, 'id' | 'timestamp'>,
 ): HistoryCommand => {
     const id = fixed?.id ?? newId('cmd')
     const timestamp = fixed?.timestamp ?? Date.now()
-    const payload = { edges: deepClone(edgesSnapshot) }
+    const payload = {
+        edgeIds: deepClone(edgeIds),
+        edges: deepClone(edgesSnapshot),
+    }
 
     return {
         id,
@@ -234,16 +238,22 @@ const cmdEdgesDelete = (
         timestamp,
         payload,
         do(workflow) {
-            ;(workflow.edges ??= [] as any)
-            const delIds = new Set<string>((payload.edges as WorkflowEdge[]).map((e) => e.id))
-            workflow.edges = (workflow.edges as any[]).filter((e: any) => !delIds.has(e.id)) as any
+            // ✅ 기존 배열을 수정하는 대신, 필터링된 새 배열을 할당하여 반응성 트리거
+            if (workflow.edges) {
+                const delIds = new Set(payload.edgeIds);
+                workflow.edges = workflow.edges.filter((e: any) => !delIds.has(e.id));
+            }
         },
         undo(workflow) {
-            ;(workflow.edges ??= [] as any)
-            const existing = new Set<string>((workflow.edges as any[]).map((e: any) => e.id))
-            ;(payload.edges as WorkflowEdge[]).forEach((e) => {
-                if (!existing.has(e.id)) (workflow.edges as any[]).push(deepClone(e) as any)
-            })
+            if (!workflow.edges) workflow.edges = [];
+            const existingIds = new Set(workflow.edges.map((e: any) => e.id));
+
+            // 삭제되었던 엣지들을 다시 추가
+            payload.edges.forEach((e: any) => {
+                if (!existingIds.has(e.id)) {
+                    workflow.edges.push(deepClone(e));
+                }
+            });
         },
         serialize() {
             return { id, type: 'edge/delete', timestamp, payload: deepClone(payload), version: 'v1' }
@@ -265,13 +275,12 @@ const cmdNodesDelete = (
         timestamp,
         payload,
         do(workflow) {
-            ;(workflow.nodes ??= [] as any)
-            ;(workflow.edges ??= [] as any)
-            const delIds = new Set<string>((payload.nodes as WorkflowNode[]).map((n) => n.id))
-            workflow.nodes = (workflow.nodes as any[]).filter((n: any) => !delIds.has(n.id)) as any
+            const delIds = new Set((payload.nodes).map((n) => n.id));
+            // ✅ 필터링된 "새 배열"을 할당해야 리액티비티가 발생합니다.
             workflow.edges = (workflow.edges as any[]).filter(
-                (e: any) => !delIds.has(e.source) && !delIds.has(e.target),
-            ) as any
+                (e: any) => !delIds.has(e.source) && !delIds.has(e.target)
+            );
+            workflow.nodes = (workflow.nodes as any[]).filter((n: any) => !delIds.has(n.id));
         },
         undo(workflow) {
             ;(workflow.nodes ??= [] as any)
@@ -287,22 +296,22 @@ const cmdNodesDelete = (
 }
 
 const cmdBatch = (
-    children: HistoryCommand[],
+    children: HistoryCommand[], // 객체 리스트
     label?: string,
     fixed?: Pick<SerializedCommand, 'id' | 'timestamp'>,
 ): HistoryCommand => {
     const id = fixed?.id ?? newId('cmd')
     const timestamp = fixed?.timestamp ?? Date.now()
-    const payload = {
-        label: label ?? null,
-        children: children.map((c) => c.serialize()),
-    }
 
     return {
         id,
         type: 'batch',
         timestamp,
-        payload,
+        // payload에는 UI 표시용 데이터와 직렬화 시 필요한 정보만 담음
+        payload: {
+            label: label ?? null,
+            children: [] // 실제 serialize() 호출 시점에 채워짐
+        },
         do(workflow) {
             children.forEach((c) => c.do(workflow))
         },
@@ -310,7 +319,17 @@ const cmdBatch = (
             ;[...children].reverse().forEach((c) => c.undo(workflow))
         },
         serialize() {
-            return { id, type: 'batch', timestamp, payload: deepClone(payload), version: 'v1' }
+            return {
+                id,
+                type: 'batch',
+                timestamp,
+                payload: {
+                    label: label ?? null,
+                    // ✅ 호출되는 시점에 자식들을 직렬화하여 반환
+                    children: children.map(c => c.serialize())
+                },
+                version: 'v1'
+            }
         },
     }
 }
@@ -328,15 +347,21 @@ const deserialize = (sc: SerializedCommand): HistoryCommand => {
         case 'edge/add':
             return cmdEdgeAdd(sc.payload?.edge as WorkflowEdge, fixed)
 
-        case 'edge/delete':
-            return cmdEdgesDelete((sc.payload?.edges ?? []) as WorkflowEdge[], fixed)
+        case 'edge/delete': {
+            // payload 구조가 다를 수 있으므로 안전하게 추출
+            const ids = Array.isArray(sc.payload?.edgeIds)
+                ? sc.payload.edgeIds
+                : (Array.isArray(sc.payload?.edges) ? sc.payload.edges.map((e: any) => e.id) : [])
+            const snap = Array.isArray(sc.payload?.edges) ? sc.payload.edges : []
+            return cmdEdgesDelete(ids, snap, fixed)
+        }
 
         case 'node/delete':
             return cmdNodesDelete((sc.payload?.nodes ?? []) as WorkflowNode[], fixed)
 
         case 'batch': {
-            const kidsSer = Array.isArray(sc.payload?.children) ? (sc.payload.children as SerializedCommand[]) : []
-            const kids = kidsSer.map(deserialize)
+            const kidsSer = Array.isArray(sc.payload?.children) ? sc.payload.children : []
+            const kids = kidsSer.map((k: any) => deserialize(k))
             return cmdBatch(kids, sc.payload?.label ?? undefined, fixed)
         }
 
@@ -354,25 +379,44 @@ export const makeAddEdgeCommand = (edge: WorkflowEdge) => cmdEdgeAdd(edge)
 
 export const makeDeleteEdgesCommand = (edgeIds: string[]) => {
     const workflow = useWorkflowStore()
-    const snap = (workflow.edges as any[]).filter((e: any) => edgeIds.includes(e.id)) as WorkflowEdge[]
-    return cmdEdgesDelete(snap)
+
+    // ✅ String으로 형변환하여 ID 매칭 확률을 높이고, 확실하게 snapshotEdge를 호출합니다.
+    const idsToFind = new Set(edgeIds.map(id => String(id)));
+    const snap = (workflow.edges as any[])
+        .filter((e: any) => idsToFind.has(String(e.id)))
+        .map(snapshotEdge);
+
+    // 디버깅: 데이터가 제대로 잡히는지 콘솔에서 확인하세요.
+    if (snap.length === 0) {
+        console.error('[History] 삭제할 엣지 스냅샷 생성 실패. 대상 ID:', edgeIds);
+    }
+
+    return cmdEdgesDelete(edgeIds, snap)
 }
 
 export const makeDeleteNodesBatchCommand = (nodeIds: string[]) => {
-    const workflow = useWorkflowStore()
-    const nodeIdSet = new Set(nodeIds)
+    const workflow = useWorkflowStore();
+    const nodeIdSet = new Set(nodeIds);
 
+    // 엣지 스냅샷 (데이터가 있는지 콘솔로 찍어보세요)
     const connectedEdges = (workflow.edges as any[]).filter(
-        (e: any) => nodeIdSet.has(e.source) || nodeIdSet.has(e.target),
-    ) as WorkflowEdge[]
+        (e: any) => nodeIdSet.has(e.source) || nodeIdSet.has(e.target)
+    ).map(snapshotEdge); // 확실하게 스냅샷 객체 생성
 
-    const nodesToDelete = (workflow.nodes as any[]).filter((n: any) => nodeIdSet.has(n.id)) as WorkflowNode[]
+    // 노드 스냅샷
+    const nodesToDelete = (workflow.nodes as any[]).filter(
+        (n: any) => nodeIdSet.has(n.id)
+    ).map(snapshotNode);
 
-    const c1 = cmdEdgesDelete(connectedEdges)
-    const c2 = cmdNodesDelete(nodesToDelete)
+    if (nodesToDelete.length === 0) {
+        console.warn('[History] 삭제할 노드를 스토어에서 찾지 못함:', nodeIds);
+    }
 
-    return cmdBatch([c1, c2], 'delete nodes')
-}
+    const c1 = cmdEdgesDelete(connectedEdges.map(e => e.id), connectedEdges);
+    const c2 = cmdNodesDelete(nodesToDelete);
+
+    return cmdBatch([c1, c2], 'delete nodes');
+};
 
 export const makeMoveNodeCommand = (
     nodeId: string,
@@ -412,7 +456,7 @@ export const useHistoryStore = defineStore('history', {
         cursor: (s) => s.undoStack.length,
 
         timeline: (s): SerializedCommand[] => {
-            const applied = s.undoStack.map((c) => c.serialize())
+            const applied = s.undoStack.map((c) => c.serialize()) // 여기서 serialize 실패 시 항목 누락
             const undone = [...s.redoStack].reverse().map((c) => c.serialize())
             return [...applied, ...undone]
         },

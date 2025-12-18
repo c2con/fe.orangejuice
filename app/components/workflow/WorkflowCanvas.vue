@@ -64,6 +64,7 @@ const {
               :edge-types="edgeTypes"
               :elements-selectable="true"
               :edges-updatable="false"
+              :delete-key-code="null"
               @pane-ready="handlePaneReady"
               @node-drag="handleNodeDrag"
               @connect-start="handleConnectStart"

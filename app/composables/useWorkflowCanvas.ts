@@ -588,14 +588,11 @@ export function useWorkflowCanvas() {
     }
 
     watch(
-        () => flowNodes.value.length,
-        async (n, o) => {
-            if (o === 0 && n > 0) {
-                hasViewportFitted.value = false
-                await fitAllNodesOnce()
-            }
-            await refreshAllNodes()
+        () => ({ nodes: workflowStore.nodes, edges: workflowStore.edges }),
+        (state) => {
+            localStorage.setItem('oj-workflow-state', JSON.stringify(state))
         },
+        { deep: true }
     )
 
     // =========================================================
@@ -654,6 +651,8 @@ export function useWorkflowCanvas() {
     // =========================================================
     // Delete Selected Edges (History Command 경유)
     // =========================================================
+    // useWorkflowCanvas.ts 수정
+
     const deleteSelectedEdges = async () => {
         const selected = readSelectedEdges()
         if (!selected.length) return
@@ -663,54 +662,83 @@ export function useWorkflowCanvas() {
         const flowEdgeIds: string[] = []
         const affectedNodeIds = new Set<string>()
 
+        // 1. 데이터 수집 (UI 제거 전 수행)
         selected.forEach((fe: any) => {
             const flowId = String(fe.id || '')
             if (!flowId) return
             flowEdgeIds.push(flowId)
 
             const storeId = flowId.startsWith('e-') ? flowId.slice(2) : flowId
-            const edge = edges.find((e) => e.id === storeId)
-            if (!edge) return
+            if (storeId) storeEdgeIds.push(storeId)
 
-            storeEdgeIds.push(storeId)
-            affectedNodeIds.add(edge.source)
-            affectedNodeIds.add(edge.target)
+            const edge = edges.find((e) => e.id === storeId)
+            if (edge) {
+                affectedNodeIds.add(edge.source)
+                affectedNodeIds.add(edge.target)
+            }
         })
 
-        // VueFlow selection 먼저 제거
+        const uniqStoreEdgeIds = Array.from(new Set(storeEdgeIds)).filter(Boolean)
+        if (uniqStoreEdgeIds.length === 0) return
+
+        // ✅ 2. 히스토리 실행을 가장 먼저 (목록에 안 나오는 문제 해결)
+        historyStore.execute(makeDeleteEdgesCommand(uniqStoreEdgeIds))
+
+        // ✅ 3. UI에서 제거
         removeEdgesSafe(flowEdgeIds)
-        if (storeEdgeIds.length === 0) return
 
-        // 스토어 변경은 History 커맨드로
-        historyStore.execute(makeDeleteEdgesCommand(storeEdgeIds))
-
+        // ✅ 4. 잔상 해결을 위한 강력한 갱신
         await nextTick()
-        affectedNodeIds.forEach((nid) => updateNodeInternals([nid]))
+        requestAnimationFrame(() => {
+            affectedNodeIds.forEach((nid) => {
+                updateNodeInternals([nid])
+            })
+        })
     }
 
     // =========================================================
     // Delete Selected Nodes (batch: 연결 edge 삭제 + node 삭제)
     // =========================================================
+    // useWorkflowCanvas.ts 내 deleteSelectedNodes 함수 교체
+
     const deleteSelectedNodes = async () => {
         const selected = readSelectedNodes()
         if (!selected.length) return
 
         const nodeIds: string[] = []
+        const flowEdgeIdsToRemove: string[] = [] // ✅ UI에서 즉시 지울 엣지 ID들
+        const edges = (workflowStore.edges || []) as unknown as StoreEdge[]
+
+        // 1. 삭제 노드 및 해당 노드와 연결된 모든 엣지의 Flow ID 수집
         selected.forEach((fn: any) => {
             const nid = String(fn.id || '')
-            if (nid) nodeIds.push(nid)
+            if (!nid) return
+            nodeIds.push(nid)
+
+            // ✅ 스토어를 뒤져서 이 노드와 연결된 모든 엣지를 찾아 UI ID('e-id')로 변환
+            edges.forEach(e => {
+                if (e.source === nid || e.target === nid) {
+                    flowEdgeIdsToRemove.push(`e-${e.id}`)
+                }
+            })
         })
-        if (!nodeIds.length) return
 
-        // VueFlow selection 먼저 제거
-        removeNodesSafe(nodeIds)
-
-        // batch 커맨드 실행 (edge+node 동시)
+        // 2. 히스토리 실행 (스토어 데이터 삭제)
         historyStore.execute(makeDeleteNodesBatchCommand(nodeIds))
 
-        await nextTick()
-    }
+        // 3. ✅ 핵심: Vue Flow UI 엔진에서 엣지 객체들을 즉시 파괴
+        // 이 작업이 수행되어야 새로고침 없이도 실선 잔상이 사라집니다.
+        if (flowEdgeIdsToRemove.length > 0) {
+            removeEdgesSafe(flowEdgeIdsToRemove)
+        }
 
+        // 4. 노드 제거
+        removeNodesSafe(nodeIds)
+
+        // 5. 레이아웃 재계산
+        await nextTick()
+        await refreshAllNodes()
+    }
     // =========================================================
     // Delete / Backspace
     // =========================================================
@@ -763,6 +791,18 @@ export function useWorkflowCanvas() {
 
     onMounted(() => {
         window.addEventListener('mousedown', onGlobalMouseDown)
+// ✅ 저장된 데이터 불러오기
+        const saved = localStorage.getItem('oj-workflow-state')
+        if (saved) {
+            try {
+                const data = JSON.parse(saved)
+                workflowStore.nodes = data.nodes || []
+                workflowStore.edges = data.edges || []
+            } catch (e) {
+                console.error('Failed to load saved state', e)
+            }
+        }
+
         nextTick(() => wrapperRef.value?.focus())
     })
 
