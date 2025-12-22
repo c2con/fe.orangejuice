@@ -11,17 +11,17 @@ const {
   flowNodes,
   flowEdges,
 
-  handlePaneReady,
-  handleNodeDrag,
+  onPaneReady,
+  onNodeDrag,
 
-  handleConnectStart,
-  handleConnect,
-  handleConnectEnd,
+  onConnectStart,
+  onConnect,
+  onConnectEnd,
 
-  handlePaneContextMenu,
-  handlePaneClick,
+  onPaneContextMenu,
+  onPaneClick,
 
-  handleDrop,
+  onWidgetDrop,
 
   widgetPicker,
   pickerRef,
@@ -48,7 +48,7 @@ const {
       tabindex="0"
       @keydown="onKeyDown"
       @dragover.prevent
-      @drop="handleDrop"
+      @drop="onWidgetDrop"
   >
     <ClientOnly>
       <div class="oj-workflow-layout">
@@ -65,13 +65,13 @@ const {
               :elements-selectable="true"
               :edges-updatable="false"
               :delete-key-code="null"
-              @pane-ready="handlePaneReady"
-              @node-drag="handleNodeDrag"
-              @connect-start="handleConnectStart"
-              @connect="handleConnect"
-              @connect-end="handleConnectEnd"
-              @pane-context-menu="handlePaneContextMenu"
-              @pane-click="handlePaneClick"
+              @pane-ready="onPaneReady"
+              @node-drag="onNodeDrag"
+              @connect-start="onConnectStart"
+              @connect="onConnect"
+              @connect-end="onConnectEnd"
+              @pane-context-menu="onPaneContextMenu"
+              @pane-click="onPaneClick"
               @node-drag-start="onNodeDragStart"
               @node-drag-stop="onNodeDragStop"
           >
@@ -140,5 +140,5 @@ const {
   </div>
 </template>
 
-<style src="@/assets/WorkflowCanvas.css"></style>
+<style src="@/assets/css/WorkflowCanvas.css"></style>
 

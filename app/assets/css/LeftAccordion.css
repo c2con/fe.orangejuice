@@ -1,0 +1,320 @@
+/* ===============================
+ * 공통 패널 레이아웃
+ * =============================== */
+
+.oj-widget-panel {
+    display: flex;
+    position: relative;
+    height: 100%;
+    background: #f5f5f7;
+    border-right: 1px solid #d0d0d0;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 12px;
+}
+
+/* 왼쪽 세로 탭 */
+
+.oj-left-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 2px;
+    background: #e7eaee;
+    border-right: 1px solid #c9ccd2;
+    box-sizing: border-box;
+}
+
+.oj-left-tab-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: none;
+    padding: 0;
+    margin: 1px 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: #5f6b7a;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.oj-left-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.9);
+    color: #2f3b4c;
+}
+
+.oj-left-tab-btn.is-active {
+    background: #1976d2;
+    color: #ffffff;
+}
+
+.oj-left-tab-icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* 오른쪽 패널 */
+
+.oj-right-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #fdfdfd;
+}
+
+/* ===============================
+ * Workspace / Data 공통
+ * =============================== */
+
+.oj-workspace-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border-bottom: 1px solid #ddd;
+    background: #f5f5f5;
+}
+
+.oj-workspace-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 4px 6px;
+    background: #ffffff;
+}
+
+/* ===============================
+ * Widgets Tab
+ * =============================== */
+
+/* Filter */
+
+.oj-filter-row {
+    padding: 6px 8px 4px;
+    border-bottom: 1px solid #ddd;
+    background: #f4f4f5;
+}
+
+.oj-filter-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+    border: 1px solid #c0c4cc;
+}
+
+/* Accordion Scroll */
+
+.oj-accordion-scroll {
+    flex: 1;
+    overflow: auto;
+    background: #fdfdfd;
+    padding: 4px;
+}
+
+/* Accordion Header */
+
+.oj-acc-header {
+    width: 100%;
+    border: none;
+    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: #ffffff;
+    text-align: left;
+    border-radius: 4px 4px 0 0;
+}
+
+/* Category Colors */
+
+.oj-acc-header.cat-data {
+    background: linear-gradient(90deg, #f6b05c, #f7941d);
+}
+.oj-acc-header.is-open.cat-data {
+    background: linear-gradient(90deg, #f39c45, #f57c00);
+}
+
+.oj-acc-header.cat-transform {
+    background: linear-gradient(90deg, #f4a552, #f17c11);
+}
+.oj-acc-header.is-open.cat-transform {
+    background: linear-gradient(90deg, #f09332, #e96a02);
+}
+
+.oj-acc-header.cat-visualize {
+    background: linear-gradient(90deg, #f9b4d4, #f284c1);
+}
+.oj-acc-header.is-open.cat-visualize {
+    background: linear-gradient(90deg, #f69cc6, #ec6ab0);
+}
+
+.oj-acc-header.cat-model {
+    background: linear-gradient(90deg, #f4b6e0, #e46bb5);
+}
+.oj-acc-header.is-open.cat-model {
+    background: linear-gradient(90deg, #f48fb1, #d81b60);
+}
+
+.oj-acc-header.cat-evaluate {
+    background: linear-gradient(90deg, #c2e7eb, #8acfd6);
+}
+.oj-acc-header.is-open.cat-evaluate {
+    background: linear-gradient(90deg, #a7dbe1, #74c1c9);
+}
+
+.oj-acc-header.cat-unsupervised {
+    background: linear-gradient(90deg, #d7c9f5, #b29ae7);
+}
+.oj-acc-header.is-open.cat-unsupervised {
+    background: linear-gradient(90deg, #cbbcf0, #9d85dd);
+}
+
+.oj-acc-cat-icon-wrap {
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.oj-acc-cat-icon {
+    width: 100%;
+    height: 100%;
+}
+
+.oj-acc-label {
+    flex: 1;
+    font-weight: 600;
+}
+
+/* Accordion Body */
+
+.oj-acc-body {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-top: none;
+    padding: 6px;
+    border-radius: 0 0 4px 4px;
+}
+
+/* Widgets Grid */
+
+.oj-widgets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+    column-gap: 2px;
+    row-gap: 6px;
+    padding: 6px;
+    align-items: start;
+}
+
+/* Widget Tile */
+
+.oj-widget-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+
+    padding: 4px 2px;
+    min-height: 60px;
+    min-width: 0;
+
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background: #ffffff;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.oj-widget-tile:hover {
+    background-color: #f0f0f0;
+}
+
+.oj-widget-tile.selected {
+    background-color: #e3f2fd;
+    border-color: #90caf9;
+}
+
+/* Widget Icon */
+
+.oj-widget-icon-wrap {
+    width: 30px;
+    height: 30px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.oj-widget-icon-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* ✅ Widget Label (줄바꿈 가능) */
+
+.oj-widget-label {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+
+    font-size: 10px;
+    color: #333;
+    line-height: 1.15;
+    letter-spacing: -0.3px;
+
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Description Panel */
+
+.oj-desc-panel {
+    border-top: 1px solid #dedede;
+    padding: 8px;
+    background: #fafafa;
+    min-height: 40px;
+}
+
+.oj-desc-title {
+    font-weight: 600;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.oj-desc-text {
+    font-size: 11px;
+    color: #555;
+}
+
+/* ===============================
+ * Resizer
+ * =============================== */
+
+.oj-resizer {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+}
+
+.oj-resizer:hover {
+    background: rgba(0, 0, 0, 0.06);
+}

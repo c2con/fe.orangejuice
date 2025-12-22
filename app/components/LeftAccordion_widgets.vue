@@ -207,6 +207,8 @@
                 :key="w.id"
                 class="oj-widget-tile"
                 :class="{ selected: isSelected(w) }"
+                draggable="true"
+                @dragstart="onWidgetDragStart($event, w)"
                 @click="selectWidget(cat.id, w)"
                 @mouseenter="onWidgetEnter(cat.id, w)"
                 @mouseleave="onWidgetLeave"
@@ -359,153 +361,21 @@ const getDescription = (widget?: WidgetDefinition) => {
   // TODO: 나중에 widget.id 기반 실제 설명 매핑
   return `${widget.label} widget.`
 }
+
+const onWidgetDragStart  = (e: DragEvent, widget: WidgetDefinition) => {
+  const dt = e.dataTransfer
+  if (!dt) return
+
+  dt.effectAllowed = 'copy'
+
+  // ✅ “어떤 위젯인지”만 넘긴다 (id 추천)
+  // drop에서 resolveWidgetKey(raw)로 key로 통일하면 대화상자와 동일해짐
+  dt.setData('application/oj-widget', widget.id)
+  dt.setData('text/oj-widget', widget.id)
+
+  // (선택) 디버깅용: label도 같이 넣을 수 있음
+  // dt.setData('text/plain', w.label)
+}
+
 </script>
-<style scoped>
-/* 기존 스타일 유지 */
-.oj-widgets-root {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.oj-filter-row {
-  padding: 6px;
-  border-bottom: 1px solid #ddd;
-}
-.oj-filter-input {
-  width: 100%;
-  padding: 4px 8px;
-  box-sizing: border-box;
-  font-size: 12px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.oj-accordion-scroll {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.oj-acc-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  padding: 5px 8px;
-  border: none;
-  border-bottom: 1px solid rgba(0,0,0,0.05);
-  cursor: pointer;
-  text-align: left;
-  transition: opacity 0.2s;
-}
-.oj-acc-header:hover {
-  filter: brightness(0.95);
-}
-
-.oj-acc-cat-icon-wrap {
-  width: 18px;
-  height: 18px;
-  margin-right: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #333;
-}
-.oj-acc-cat-icon {
-  width: 100%;
-  height: 100%;
-}
-
-.oj-acc-label {
-  flex: 1;
-  font-weight: 600;
-  font-size: 13px;
-  color: #333;
-}
-
-.oj-acc-body {
-  background: #fff;
-}
-
-.oj-widgets-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-  column-gap: 2px;
-  row-gap: 6px;
-  padding: 6px;
-  align-items: start;
-}
-
-.oj-widget-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  text-align: center;
-
-  width: 100%;
-  min-height: 60px;
-
-  padding: 4px 2px 2px 2px;
-  box-sizing: border-box;
-
-  background: white;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-.oj-widget-tile:hover {
-  background-color: #f0f0f0;
-}
-.oj-widget-tile.selected {
-  background-color: #e3f2fd;
-  border-color: #90caf9;
-}
-
-.oj-widget-icon-wrap {
-  width: 30px;
-  height: 30px;
-  margin-bottom: 1px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.oj-widget-icon-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.oj-widget-label {
-  font-size: 10px;
-  color: #333;
-  line-height: 1.15;
-  letter-spacing: -0.3px;
-
-  white-space: normal;
-  word-break: keep-all;
-  word-wrap: break-word;
-
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.oj-desc-panel {
-  border-top: 1px solid #ddd;
-  padding: 8px;
-  background: #fafafa;
-  min-height: 40px;
-}
-.oj-desc-title {
-  font-weight: bold;
-  font-size: 12px;
-  margin-bottom: 2px;
-}
-.oj-desc-text {
-  font-size: 11px;
-  color: #666;
-}
-</style>
+<style src="@/assets/css/LeftAccordion.css"></style>

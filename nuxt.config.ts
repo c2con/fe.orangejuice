@@ -8,7 +8,7 @@ export default defineNuxtConfig({
         "@nuxt/ui",
     ],
 
-    css: ["~/assets/LeftAccordion.css"],
+    css: ["~/assets/css/LeftAccordion.css"],
     srcDir: "app",
 
     // 굳이 alias 안 건드려도 됨. (Nuxt가 ~, @ 를 srcDir 기준으로 잡아줌)

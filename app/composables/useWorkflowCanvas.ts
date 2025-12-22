@@ -286,7 +286,31 @@ export function useWorkflowCanvas() {
         historyStore.execute(makeMoveNodeCommand(id, from, to))
     }
 
-    const handleDrop = async (e: DragEvent) => {
+    const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase()
+
+    function resolveWidgetKey(raw: string): string | null {
+        if (!raw) return null
+
+        // 1) raw가 이미 key인 경우 (가장 빠름)
+        if (WIDGET_DEFINITIONS[raw]) return raw
+
+        const r = normalize(raw)
+
+        // 2) def.id / def.label / key 중 어떤 형태로 들어와도 매칭
+        for (const [key, def] of Object.entries(WIDGET_DEFINITIONS)) {
+            if (
+                r === normalize(key) ||
+                r === normalize(def.id) ||
+                r === normalize(def.label)
+            ) {
+                return key
+            }
+        }
+
+        return null
+    }
+
+    const onWidgetDrop = async (e: DragEvent) => {
         const dt = e.dataTransfer
         if (!dt) return
 
@@ -448,7 +472,7 @@ export function useWorkflowCanvas() {
     // =========================================================
     // Node Drag (현재는 즉시 반영, 추후 node/move 커맨드로 분리 가능)
     // =========================================================
-    const handleNodeDrag = (evt: NodeDragEvent) => {
+    const onNodeDrag = (evt: NodeDragEvent) => {
         const nodes = (workflowStore.nodes || []) as unknown as StoreNode[]
         const t = nodes.find((n) => n.id === evt.node.id)
         if (!t) return
@@ -466,12 +490,12 @@ export function useWorkflowCanvas() {
 
     const connectingFrom = ref<any>(null)
 
-    const handleConnectStart = (params: any) => {
+    const onConnectStart = (params: any) => {
         connectingFrom.value = params
         didConnectInGesture.value = false
     }
 
-    const handleConnect = (params: any) => {
+    const onConnect = (params: any) => {
         console.log('[edge connect]', params.sourceHandle, '->', params.targetHandle)
         const sId = String(params.source || '')
         const tId = String(params.target || '')
@@ -503,7 +527,7 @@ export function useWorkflowCanvas() {
 
 
 
-    const handleConnectEnd = (evt: any) => {
+    const onConnectEnd = (evt: any) => {
         const mouse = evt?.event as MouseEvent | undefined
 
         // ✅ 연결 성공이면 팝업 띄우지 않음
@@ -521,12 +545,12 @@ export function useWorkflowCanvas() {
     // =========================================================
     // Pane events
     // =========================================================
-    const handlePaneContextMenu = (e: MouseEvent) => {
+    const onPaneContextMenu = (e: MouseEvent) => {
         e.preventDefault()
         openWidgetPickerAt(e.clientX, e.clientY)
     }
 
-    const handlePaneClick = () => {
+    const onPaneClick = () => {
         closeWidgetPicker()
         wrapperRef.value?.focus()
     }
@@ -574,7 +598,7 @@ export function useWorkflowCanvas() {
         hasViewportFitted.value = true
     }
 
-    const handlePaneReady = () => {
+    const onPaneReady = () => {
         void fitAllNodesOnce()
         nextTick(() => wrapperRef.value?.focus())
     }
@@ -817,17 +841,17 @@ export function useWorkflowCanvas() {
         flowNodes,
         flowEdges,
 
-        handlePaneReady,
-        handleNodeDrag,
+        onPaneReady,
+        onNodeDrag,
 
-        handleConnectStart,
-        handleConnect,
-        handleConnectEnd,
+        onConnectStart,
+        onConnect,
+        onConnectEnd,
 
-        handlePaneContextMenu,
-        handlePaneClick,
+        onPaneContextMenu,
+        onPaneClick,
 
-        handleDrop,
+        onWidgetDrop,
 
         widgetPicker,
         pickerRef,

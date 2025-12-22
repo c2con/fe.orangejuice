@@ -140,4 +140,4 @@ export default defineComponent({
 })
 </script>
 
-<style src="@/assets/LeftAccordion.css"></style>
+<style src="@/assets/css/LeftAccordion.css"></style>
