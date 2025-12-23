@@ -2,29 +2,6 @@
 import { defineStore } from 'pinia'
 import { useWorkflowStore } from '@/stores/workflow'
 
-/** =========================
- *  Store Types (workflow.ts와 동일하게 맞추기)
- *  ========================= */
-export type WorkflowNode = {
-    id: string
-    widgetType: string
-    name: string
-    title: string
-    label: string
-    position: { x: number; y: number }
-    params: Record<string, any>
-}
-
-export type WorkflowEdge = {
-    id: string
-    source: string
-    target: string
-    sourceChannel: string | null
-    targetChannel: string | null
-    enable: boolean
-    label: string | null
-}
-
 /** workflow store shape (Pinia store instance 타입) */
 type WorkflowStore = ReturnType<typeof useWorkflowStore>
 
@@ -344,20 +321,23 @@ const deserialize = (sc: SerializedCommand): HistoryCommand => {
         case 'node/add':
             return cmdNodeAdd(sc.payload?.node as WorkflowNode, fixed)
 
+        case 'node/delete':
+            return cmdNodesDelete((sc.payload?.nodes ?? []) as WorkflowNode[], fixed)
+
+        case 'node/move':
+            const label = (typeof sc.payload?.label === 'string' ? sc.payload.label : '')
+            return cmdNodeMove(sc.payload?.nodeId, sc.payload?.from, sc.payload?.to, label, fixed)
+
         case 'edge/add':
             return cmdEdgeAdd(sc.payload?.edge as WorkflowEdge, fixed)
 
         case 'edge/delete': {
             // payload 구조가 다를 수 있으므로 안전하게 추출
             const ids = Array.isArray(sc.payload?.edgeIds)
-                ? sc.payload.edgeIds
-                : (Array.isArray(sc.payload?.edges) ? sc.payload.edges.map((e: any) => e.id) : [])
+                ? sc.payload.edgeIds : (Array.isArray(sc.payload?.edges) ? sc.payload.edges.map((e: any) => e.id) : [])
             const snap = Array.isArray(sc.payload?.edges) ? sc.payload.edges : []
             return cmdEdgesDelete(ids, snap, fixed)
         }
-
-        case 'node/delete':
-            return cmdNodesDelete((sc.payload?.nodes ?? []) as WorkflowNode[], fixed)
 
         case 'batch': {
             const kidsSer = Array.isArray(sc.payload?.children) ? sc.payload.children : []
