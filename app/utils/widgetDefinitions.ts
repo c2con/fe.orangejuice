@@ -25,12 +25,12 @@ export const CATEGORY_ORDER = [
 ]
 
 export const CATEGORY_COLORS: Record<string, string> = {
-    data: '#FFDCA8',
-    transform: '#FFCCBC',
-    visualize: '#FFCDD2',
-    model: '#E1BEE7',
-    evaluate: '#B2DFDB',
-    unsupervised: '#CFD8DC',
+    data: '#F7F5AA',
+    transform: '#FFA76F',
+    visualize: '#FBE3E2',
+    model: '#FFBAB4',
+    evaluate: '#C5F3F3',
+    unsupervised: '#D4E5EF',
     other: '#F5F5F5'
 }
 
@@ -109,161 +109,161 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
     },
     "SaveData": {
         id: "SaveData", label: "Save Data", categoryId: "data",
-        inputs: ["Data"], outputs: [], hasInput: true, hasOutput: false,
+        inputs: ["transform"], outputs: [], hasInput: true, hasOutput: false,
         icon: "/icons/widgets/data/Save.svg"
     },
     "EditDomain": {
-        id: "EditDomain", label: "Edit Domain", categoryId: "data",
+        id: "EditDomain", label: "Edit Domain", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/EditDomain.svg"
     },
     "CreateClass": {
-        id: "CreateClass", label: "Create Class", categoryId: "data",
+        id: "CreateClass", label: "Create Class", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/CreateClass.svg"
     },
     "CreateInstance": {
-        id: "CreateInstance", label: "Create Instance", categoryId: "data",
+        id: "CreateInstance", label: "Create Instance", categoryId: "transform",
         inputs: [], outputs: ["Data"], hasInput: false, hasOutput: true,
         icon: "/icons/widgets/data/CreateInstance.svg"
     },
     "Rank": {
-        id: "Rank", label: "Rank", categoryId: "data",
+        id: "Rank", label: "Rank", categoryId: "transform",
         inputs: ["Data", "Scorer"], outputs: ["Reduced Data", "Scores"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Rank.svg"
     },
     "Category-Data": {
-        id: "Category-Data", label: "Category Data", categoryId: "data",
+        id: "Category-Data", label: "Category Data", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Category-Data.svg"
     },
     "DataSampler": {
-        id: "DataSampler", label: "Data Sampler", categoryId: "data",
+        id: "DataSampler", label: "Data Sampler", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data Sample", "Remaining Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/DataSampler.svg"
     },
     "SelectColumns": {
-        id: "SelectColumns", label: "Select Columns", categoryId: "data",
+        id: "SelectColumns", label: "Select Columns", categoryId: "transform",
         inputs: ["Data", "Features"], outputs: ["Data", "Features"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/SelectColumns.svg"
     },
     "SelectRows": {
-        id: "SelectRows", label: "Select Rows", categoryId: "data",
+        id: "SelectRows", label: "Select Rows", categoryId: "transform",
         inputs: ["Data"], outputs: ["Matching Data", "Unmatched Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/SelectRows.svg"
     },
     "Transpose": {
-        id: "Transpose", label: "Transpose", categoryId: "data",
+        id: "Transpose", label: "Transpose", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Transpose.svg"
     },
     "MergeData": {
-        id: "MergeData", label: "Merge Data", categoryId: "data",
+        id: "MergeData", label: "Merge Data", categoryId: "transform",
         inputs: ["Data", "Extra Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/MergeData.svg"
     },
     "Concatenate": {
-        id: "Concatenate", label: "Concatenate", categoryId: "data",
+        id: "Concatenate", label: "Concatenate", categoryId: "transform",
         inputs: ["Primary Data", "Additional Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Concatenate.svg"
     },
     "SelectByDataIndex": {
-        id: "SelectByDataIndex", label: "Select by Index", categoryId: "data",
+        id: "SelectByDataIndex", label: "Select by Index", categoryId: "transform",
         inputs: ["Data", "Data Subset"], outputs: ["Selected Data", "Annotated Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/SelectByDataIndex.svg"
     },
     "Unique": {
-        id: "Unique", label: "Unique", categoryId: "data",
+        id: "Unique", label: "Unique", categoryId: "transform",
         inputs: ["Data"], outputs: ["Unique Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Unique.svg"
     },
     "AggregateColumns": {
-        id: "AggregateColumns", label: "Aggregate Columns", categoryId: "data",
+        id: "AggregateColumns", label: "Aggregate Columns", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/AggregateColumns.svg"
     },
     "GroupBy": {
-        id: "GroupBy", label: "Group By", categoryId: "data",
+        id: "GroupBy", label: "Group By", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/GroupBy.svg"
     },
     "Pivot": {
-        id: "Pivot", label: "Pivot Table", categoryId: "data",
+        id: "Pivot", label: "Pivot Table", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Pivot.svg"
     },
     "Melt": {
-        id: "Melt", label: "Melt", categoryId: "data",
+        id: "Melt", label: "Melt", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Melt.svg"
     },
     "Preprocess": {
-        id: "Preprocess", label: "Preprocess", categoryId: "data",
+        id: "Preprocess", label: "Preprocess", categoryId: "transform",
         inputs: ["Data"], outputs: ["Preprocessor", "Preprocessed Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Preprocess.svg"
     },
     "Impute": {
-        id: "Impute", label: "Impute", categoryId: "data",
+        id: "Impute", label: "Impute", categoryId: "transform",
         inputs: ["Data", "Learner"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Impute.svg"
     },
     "Discretize": {
-        id: "Discretize", label: "Discretize", categoryId: "data",
+        id: "Discretize", label: "Discretize", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data", "Preprocessor"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Discretize.svg"
     },
     "Continuize": {
-        id: "Continuize", label: "Continuize", categoryId: "data",
+        id: "Continuize", label: "Continuize", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data", "Preprocessor"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Continuize.svg"
     },
     "Normalize": {
-        id: "Normalize", label: "Normalize", categoryId: "data",
+        id: "Normalize", label: "Normalize", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data", "Preprocessor"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Normalize.svg"
     },
     "Outliers": {
-        id: "Outliers", label: "Outliers", categoryId: "data",
+        id: "Outliers", label: "Outliers", categoryId: "transform",
         inputs: ["Data"], outputs: ["Outliers", "Inliers", "Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Outliers.svg"
     },
     "FeatureConstructor": {
-        id: "FeatureConstructor", label: "Feature Constructor", categoryId: "data",
+        id: "FeatureConstructor", label: "Feature Constructor", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/FeatureConstructor.svg"
     },
     "PythonScript": {
-        id: "PythonScript", label: "Python Script", categoryId: "data",
+        id: "PythonScript", label: "Python Script", categoryId: "transform",
         inputs: ["in_data", "in_learner", "in_classifier", "in_object"], outputs: ["out_data", "out_learner", "out_classifier", "out_object"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/PythonScript.svg"
     },
     "SelectColumnsRandom": {
-        id: "SelectColumnsRandom", label: "Select Random Columns", categoryId: "data",
+        id: "SelectColumnsRandom", label: "Select Random Columns", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/SelectColumnsRandom.svg"
     },
     "PurgeDomain": {
-        id: "PurgeDomain", label: "Purge Domain", categoryId: "data",
+        id: "PurgeDomain", label: "Purge Domain", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/PurgeDomain.svg"
     },
     "Random": {
-        id: "Random", label: "Random Data", categoryId: "data",
+        id: "Random", label: "Random Data", categoryId: "transform",
         inputs: [], outputs: ["Data"], hasInput: false, hasOutput: true,
         icon: "/icons/widgets/data/Random.svg"
     },
     "Split": {
-        id: "Split", label: "Split Data", categoryId: "data",
+        id: "Split", label: "Split Data", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data Sample", "Remaining Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Split.svg"
     },
     "Neighbors": {
-        id: "Neighbors", label: "Neighbors", categoryId: "data",
+        id: "Neighbors", label: "Neighbors", categoryId: "transform",
         inputs: ["Data", "Reference"], outputs: ["Neighbors"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Neighbors.svg"
     },
     "Transform": {
-        id: "Transform", label: "Transform", categoryId: "data",
+        id: "Transform", label: "Transform", categoryId: "transform",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Transform.svg"
     },
