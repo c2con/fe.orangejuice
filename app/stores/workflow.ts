@@ -45,6 +45,19 @@ export interface WorkspaceFolder {
 }
 
 /**
+ * 워크스페이스 문서(=파일) 단위로 보관하는 워크플로우
+ * - 백엔드 없이도 문서 전환 시 노드/엣지 스왑이 가능하도록 in-memory 저장
+ */
+export interface WorkspaceDocument {
+    fileId: string
+    name: string
+    workflowId: string | null
+    workflowName: string
+    nodes: WorkflowNode[]
+    edges: WorkflowEdge[]
+}
+
+/**
  * 스토어 state
  */
 export interface WorkflowState {
@@ -56,6 +69,9 @@ export interface WorkflowState {
     workspaceFolders: WorkspaceFolder[]
     selectedWorkspaceFolderId: string | null
     selectedWorkspaceFileId: string | null
+
+    /** fileId -> document */
+    documents: Record<string, WorkspaceDocument>
 }
 
 export const useWorkflowStore = defineStore('workflow', {
@@ -68,9 +84,78 @@ export const useWorkflowStore = defineStore('workflow', {
         workspaceFolders: [],
         selectedWorkspaceFolderId: null,
         selectedWorkspaceFileId: null,
+
+        documents: {},
     }),
 
     actions: {
+        /**
+         * 앱 시작 시 워크스페이스 기본 구조 보장
+         * - 기본 폴더 1개
+         * - 그 아래 새 문서 1개
+         */
+        ensureDefaultWorkspace() {
+            if (this.workspaceFolders.length > 0) {
+                // 선택된 문서가 없으면 첫 문서를 선택
+                if (!this.selectedWorkspaceFileId) {
+                    const f = this.workspaceFolders[0]
+                    const file = f?.files?.[0]
+                    if (f && file) this.selectWorkspaceFile(f.id, file.id)
+                }
+                return
+            }
+
+            const folderId = `folder-${Date.now()}`
+            const fileId = `file-${Date.now()}`
+
+            const folder: WorkspaceFolder = {
+                id: folderId,
+                name: '기본',
+                isOpen: true,
+                files: [{ id: fileId, name: '새 문서' }],
+            }
+
+            this.workspaceFolders.push(folder)
+            this.documents[fileId] = {
+                fileId,
+                name: '새 문서',
+                workflowId: null,
+                workflowName: '',
+                nodes: [],
+                edges: [],
+            }
+
+            this.selectedWorkspaceFolderId = folderId
+            this.selectedWorkspaceFileId = fileId
+            this.applyDocumentToCanvas(fileId)
+        },
+
+        /** fileId에 저장된 워크플로우를 캔버스(현재 nodes/edges)로 반영 */
+        applyDocumentToCanvas(fileId: string) {
+            const doc = this.documents[fileId]
+            if (!doc) {
+                this.id = null
+                this.name = ''
+                this.nodes = []
+                this.edges = []
+                return
+            }
+            this.id = doc.workflowId
+            this.name = doc.workflowName
+            this.nodes = doc.nodes
+            this.edges = doc.edges
+        },
+
+        /** 현재 캔버스 상태를 문서에 저장 */
+        snapshotCanvasToDocument(fileId: string) {
+            const doc = this.documents[fileId]
+            if (!doc) return
+            doc.workflowId = this.id
+            doc.workflowName = this.name
+            doc.nodes = this.nodes
+            doc.edges = this.edges
+        },
+
         // -----------------------------
         // 워크스페이스 (폴더 / 파일)
         // -----------------------------
@@ -95,20 +180,21 @@ export const useWorkflowStore = defineStore('workflow', {
         deleteWorkspaceFolder(folderId: string) {
             const idx = this.workspaceFolders.findIndex((f) => f.id === folderId)
             if (idx === -1) return
-            // 비어있는 폴더만 삭제 (필요하면 로직 조절)
-            console.log(`[Debug] idx: ${idx}`);
-            console.log('[Debug] folder:', this.workspaceFolders[idx]);
-            console.log('[Debug] files:', this.workspaceFolders[idx]?.files);
 
+            // 비어있는 폴더만 삭제
             if (this.workspaceFolders[idx]?.files?.length) {
-                console.warn('Files 데이터가 비어있어서 렌더링을 중단합니다.');
                 return
             }
+
             this.workspaceFolders.splice(idx, 1)
 
             if (this.selectedWorkspaceFolderId === folderId) {
                 this.selectedWorkspaceFolderId = null
                 this.selectedWorkspaceFileId = null
+                this.id = null
+                this.name = ''
+                this.nodes = []
+                this.edges = []
             }
         },
 
@@ -118,10 +204,12 @@ export const useWorkflowStore = defineStore('workflow', {
         },
 
         selectWorkspaceFolder(folderId: string | null) {
-            this.selectedWorkspaceFolderId = folderId
-            if (folderId === null) {
-                this.selectedWorkspaceFileId = null
+            if (this.selectedWorkspaceFileId) {
+                this.snapshotCanvasToDocument(this.selectedWorkspaceFileId)
             }
+
+            this.selectedWorkspaceFolderId = folderId
+            this.selectedWorkspaceFileId = null
         },
 
         addWorkspaceFile(folderId: string, name: string) {
@@ -132,8 +220,21 @@ export const useWorkflowStore = defineStore('workflow', {
             const file: WorkspaceFile = { id, name }
             folder.files.push(file)
 
+            // 문서 생성
+            this.documents[id] = {
+                fileId: id,
+                name,
+                workflowId: null,
+                workflowName: '',
+                nodes: [],
+                edges: [],
+            }
+
             this.selectedWorkspaceFolderId = folderId
             this.selectedWorkspaceFileId = id
+
+            // 새 문서 선택 시 빈 캔버스로
+            this.applyDocumentToCanvas(id)
         },
 
         renameWorkspaceFile(folderId: string, fileId: string, newName: string) {
@@ -141,6 +242,9 @@ export const useWorkflowStore = defineStore('workflow', {
             if (!folder) return
             const file = folder.files.find((f) => f.id === fileId)
             if (file) file.name = newName
+
+            const doc = this.documents[fileId]
+            if (doc) doc.name = newName
         },
 
         deleteWorkspaceFile(folderId: string, fileId: string) {
@@ -150,14 +254,27 @@ export const useWorkflowStore = defineStore('workflow', {
             if (idx === -1) return
             folder.files.splice(idx, 1)
 
+            delete this.documents[fileId]
+
             if (this.selectedWorkspaceFileId === fileId) {
                 this.selectedWorkspaceFileId = null
+                this.id = null
+                this.name = ''
+                this.nodes = []
+                this.edges = []
             }
         },
 
         selectWorkspaceFile(folderId: string, fileId: string) {
+            // 현재 선택 문서의 작업 내용을 저장
+            if (this.selectedWorkspaceFileId) {
+                this.snapshotCanvasToDocument(this.selectedWorkspaceFileId)
+            }
             this.selectedWorkspaceFolderId = folderId
             this.selectedWorkspaceFileId = fileId
+
+            // 새 문서 로드
+            this.applyDocumentToCanvas(fileId)
         },
 
         // -----------------------------
@@ -170,18 +287,13 @@ export const useWorkflowStore = defineStore('workflow', {
             const { data } = await axios.post(
                 'http://localhost:8000/api/workflow/import-ows',
                 form,
-                {
-                    headers: { 'Content-Type': 'multipart/form-data' },
-                },
+                { headers: { 'Content-Type': 'multipart/form-data' } },
             )
-
-            this.id = data.id
-            this.name = data.name ?? ''
 
             const rawNodes: any[] = Array.isArray(data.nodes) ? data.nodes : []
             const rawEdges: any[] = Array.isArray(data.edges) ? data.edges : []
 
-            this.nodes = rawNodes.map((n: any): WorkflowNode => {
+            const nodes = rawNodes.map((n: any): WorkflowNode => {
                 const rawX = n.pos?.x ?? n.position?.x
                 const rawY = n.pos?.y ?? n.position?.y
 
@@ -205,11 +317,10 @@ export const useWorkflowStore = defineStore('workflow', {
                 }
             })
 
-            const validNodeIds = new Set(this.nodes.map((n) => n.id))
+            const validNodeIds = new Set(nodes.map((n) => n.id))
 
-            this.edges = rawEdges
+            const edges = rawEdges
                 .filter((e: any) => {
-                    // OWS 파서가 주는 형태: source: "0", target: "1"
                     const sid = String(e.source)
                     const tid = String(e.target)
                     return validNodeIds.has(sid) && validNodeIds.has(tid)
@@ -225,9 +336,29 @@ export const useWorkflowStore = defineStore('workflow', {
                         label: e.label ?? null,
                     }),
                 )
+
+            // ✅ "현재 선택된 문서"에 임포트 결과를 저장하고 캔버스 반영
+            const selectedFileId = this.selectedWorkspaceFileId
+            if (selectedFileId && this.documents[selectedFileId]) {
+                const doc = this.documents[selectedFileId]
+                doc.workflowId = String(data.id ?? null)
+                doc.workflowName = String(data.name ?? '')
+                doc.nodes = nodes
+                doc.edges = edges
+                this.applyDocumentToCanvas(selectedFileId)
+                return
+            }
+
+            // fallback: 문서가 없으면 캔버스에만 반영
+            this.id = String(data.id ?? null)
+            this.name = String(data.name ?? '')
+            this.nodes = nodes
+            this.edges = edges
         },
 
-        // stores/workflow.ts (actions 안에 추가)
+        // -----------------------------
+        // Canvas 편집 API (기존)
+        // -----------------------------
         addNode(widgetType: string, position: { x: number; y: number }, title?: string) {
             const id = `node_${Date.now()}_${Math.random().toString(16).slice(2)}`
             const name = title ?? widgetType
@@ -241,19 +372,27 @@ export const useWorkflowStore = defineStore('workflow', {
                     params: {},
                 }
             ;(this.nodes as any[]).push(node)
+
+            // 현재 문서에 반영
+            if (this.selectedWorkspaceFileId) {
+                this.snapshotCanvasToDocument(this.selectedWorkspaceFileId)
+            }
             return id
         },
+
         addEdge(edge: WorkflowEdge) {
             this.edges.push(edge)
-        },
-        clearWorkflow() {
-            this.nodes = [];
-            this.edges = [];
-            this.id = null;
-            this.name = '';
-            // 필요 시 선택된 파일/폴더 정보도 초기화
-            this.selectedWorkspaceFileId = null;
+            if (this.selectedWorkspaceFileId) {
+                this.snapshotCanvasToDocument(this.selectedWorkspaceFileId)
+            }
         },
 
+        clearWorkflow() {
+            this.nodes = []
+            this.edges = []
+            this.id = null
+            this.name = ''
+            this.selectedWorkspaceFileId = null
+        },
     },
 })
