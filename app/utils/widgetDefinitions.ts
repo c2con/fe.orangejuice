@@ -113,7 +113,7 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         icon: "/icons/widgets/data/Save.svg"
     },
     "EditDomain": {
-        id: "EditDomain", label: "Edit Domain", categoryId: "transform",
+        id: "EditDomain", label: "Edit Domain", categoryId: "data",
         inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/EditDomain.svg"
     },
@@ -258,14 +258,9 @@ export const WIDGET_DEFINITIONS: Record<string, WidgetDefinition> = {
         icon: "/icons/widgets/data/Split.svg"
     },
     "Neighbors": {
-        id: "Neighbors", label: "Neighbors", categoryId: "transform",
+        id: "Neighbors", label: "Neighbors", categoryId: "Unsupervised",
         inputs: ["Data", "Reference"], outputs: ["Neighbors"], hasInput: true, hasOutput: true,
         icon: "/icons/widgets/data/Neighbors.svg"
-    },
-    "Transform": {
-        id: "Transform", label: "Transform", categoryId: "transform",
-        inputs: ["Data"], outputs: ["Data"], hasInput: true, hasOutput: true,
-        icon: "/icons/widgets/data/Transform.svg"
     },
 
     // =================================================================
